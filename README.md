@@ -1,10 +1,12 @@
 <div align="center">
 
-<img src="assets/hero.svg" alt="OctoBrowser-MCP" width="820">
+<img src="assets/hero.svg" alt="OctoBrowser-MCP — an unofficial Model Context Protocol server for Octo Browser" width="820">
 
 <br>
 
 **Hand your AI assistant the wheel of Octo Browser — antidetect profiles, driven in plain language.**
+
+<sub>Unofficial, community-built · not affiliated with or endorsed by Octo Browser. “Octo Browser” and its logo are trademarks of their respective owner.</sub>
 
 [![CI](https://github.com/eforus-overseer/octobrowser-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/eforus-overseer/octobrowser-mcp/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
@@ -38,25 +40,7 @@ The assistant finds the profile, launches it through Octo's local API, latches o
 
 ## How it fits together
 
-Three modules, one job each — the relay never talks to Octo or the browser directly, it delegates.
-
-```
-         AI assistant  (Claude Code / Cursor)
-                │  MCP · stdio
-        ┌───────▼─────────────────────────────────┐
-        │            octobrowser-mcp               │
-        │                                          │
-        │   relay.py        37 MCP tools           │
-        │     │                                    │
-        │     ├──► conduits.py   Local + Cloud API │
-        │     └──► helmsman.py   Playwright / CDP   │
-        └─────────┬─────────────────────┬──────────┘
-             HTTP │ :58888 / cloud   CDP │ ws://
-          ┌───────▼───────┐      ┌───────▼────────┐
-          │  Octo APIs    │─────►│  Octo Browser  │
-          │ local + cloud │launch│  (antidetect)  │
-          └───────────────┘      └────────────────┘
-```
+<img src="assets/diagram-architecture.svg" alt="Architecture diagram: AI assistant communicates with octobrowser-mcp over MCP stdio. The relay dispatches to conduits (Octo local + cloud API) and helmsman (Playwright/CDP), driving Octo Browser." style="width:100%; max-width:820px; border-radius:8px;">
 
 | Module | Role |
 |--------|------|
@@ -207,6 +191,8 @@ Everything is environment-driven:
 
 ## In practice
 
+<img src="assets/diagram-sequence.svg" alt="Sequence diagram: You request a profile by name; the server searches, launches, connects over CDP, navigates and screenshots." style="width:100%; max-width:800px; border-radius:8px; margin-bottom:24px;">
+
 **Launch by name and automate**
 
 ```
@@ -284,6 +270,12 @@ uv run pytest                    # fast, offline
 
 The suite feeds every Octo response through `httpx.MockTransport` and drives the MCP surface in-process — **no running Octo Browser and no network needed**. CI runs the same four gates on Python 3.10 and 3.13.
 
+## Resilience by design
+
+<img src="assets/diagram-recovery.svg" alt="Flowchart: get_or_start_profile recovers from any start failure by re-checking running profiles instead of bailing." style="width:100%; max-width:680px; border-radius:8px; margin-bottom:24px;">
+
+A key design principle: when a launch fails, the server doesn't give up. Instead, it re-checks the running profiles on the host — the profile may have started anyway, or it may be running from a prior attempt. This recovery path keeps the tool reliable under transient network hiccups or API quirks.
+
 ## Under the hood
 
 - **[MCP SDK 2.x](https://github.com/modelcontextprotocol/python-sdk)** — tool schemas generated straight from the Python signatures
@@ -294,6 +286,8 @@ The suite feeds every Octo response through `httpx.MockTransport` and drives the
 ## Credits & license
 
 Released under the **MIT License** — see [LICENSE](LICENSE). OctoBrowser-MCP began as a rework of the MIT-licensed original `octo-mcp` groundwork; that copyright notice is preserved in `LICENSE` per the terms.
+
+This is an **independent, unofficial** project — not affiliated with, sponsored by, or endorsed by Octo Browser. The Octo Browser name and logo (in `assets/`, from the [official brand kit](https://octobrowser.net/)) are trademarks of their respective owner, used here unmodified only to identify the software this server drives.
 
 ## Links
 

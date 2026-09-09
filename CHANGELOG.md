@@ -12,8 +12,11 @@
   `browser_manager.py` → `helmsman.py` (`BrowserManager` → `Helmsman`), and
   `server.py` → `relay.py`. **The 37 MCP tool names, their arguments and output are
   unchanged** — only the Python surface moved.
-- Added a hero logo (original blue-octopus mark) and an MCP protocol mark under `assets/`,
-  and restructured the README around them.
+- Added a branded hero banner under `assets/` — the official Octo Browser logo (from the
+  vendor brand kit, embedded unmodified) on a brand-navy canvas beside an "MCP Server"
+  descriptor — plus the standalone official logo/sign SVGs, and restructured the README
+  around them. A clear "unofficial · not affiliated with Octo Browser" disclaimer and
+  trademark notice accompany the marks.
 
 - **Migrated to MCP SDK 2.x** (`mcp>=2.0.0`). 2.0 removed the low-level
   `@server.list_tools()` / `@server.call_tool()` decorators this server was built on,

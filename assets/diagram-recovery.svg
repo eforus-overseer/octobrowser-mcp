@@ -1,0 +1,87 @@
+<svg width="680" height="700" viewBox="0 0 680 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Flowchart: get_or_start_profile tries to launch by name, and on any failure it re-checks the running profiles list instead of bailing.">
+  <defs>
+    <marker id="flow-mut" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#51607A"/></marker>
+    <marker id="flow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#1890FF"/></marker>
+    <linearGradient id="flow-focal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF8F0"/><stop offset="1" stop-color="#FFE8E0"/></linearGradient>
+  </defs>
+
+  <!-- Card -->
+  <rect x="4" y="4" width="672" height="692" rx="14" fill="#F7FAFF" stroke="#D6E4FF" stroke-width="1.5"/>
+
+  <!-- Title -->
+  <text x="24" y="38" font-family="Georgia,'Times New Roman',serif" font-size="20" fill="#002766">get_or_start_profile: resilient launch</text>
+  <text x="25" y="56" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="9" letter-spacing="1" fill="#51607A">RECOVERS FROM ANY START FAILURE BY RE-CHECKING RUNNING PROFILES</text>
+
+  <!-- START -->
+  <ellipse cx="340" cy="90" rx="36" ry="20" fill="#F0F8FF" stroke="#1890FF" stroke-width="1.8"/>
+  <text x="340" y="97" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="11" font-weight="600" fill="#002766">Start</text>
+
+  <!-- Arrow: START → search_profiles -->
+  <path d="M340,110 V160" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#flow-mut)"/>
+
+  <!-- search_profiles by name (cloud) -->
+  <rect x="260" y="160" width="160" height="50" rx="8" fill="#FFFFFF" stroke="#002766" stroke-width="1.5"/>
+  <text x="340" y="180" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="12" font-weight="600" fill="#002766">search_profiles</text>
+  <text x="340" y="200" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">find by name (cloud API)</text>
+
+  <!-- Arrow: search → start_profile -->
+  <path d="M340,210 V260" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#flow-mut)"/>
+  <rect x="342" y="230" width="32" height="16" fill="#F7FAFF"/><text x="346" y="242" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">uuid</text>
+
+  <!-- start_profile (launch) -->
+  <rect x="260" y="260" width="160" height="50" rx="8" fill="#FFFFFF" stroke="#002766" stroke-width="1.5"/>
+  <text x="340" y="280" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="12" font-weight="600" fill="#002766">start_profile</text>
+  <text x="340" y="300" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">launch by uuid (local API)</text>
+
+  <!-- Diamond: success? -->
+  <path d="M340,360 L420,410 L340,460 L260,410 Z" fill="#F0F8FF" stroke="#1890FF" stroke-width="1.8"/>
+  <text x="340" y="415" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="11" font-weight="600" fill="#002766">Success?</text>
+
+  <!-- Arrow: start → Diamond -->
+  <path d="M340,310 V360" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#flow-mut)"/>
+
+  <!-- YES path (right) → return -->
+  <path d="M420,410 H520" fill="none" stroke="#1890FF" stroke-width="2" marker-end="url(#flow-accent)"/>
+  <rect x="450" y="402" width="40" height="16" fill="#F7FAFF"/><text x="454" y="414" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#1890FF">yes</text>
+
+  <!-- Return node (right) -->
+  <rect x="520" y="380" width="120" height="60" rx="8" fill="url(#flow-focal)" stroke="#1890FF" stroke-width="1.8"/>
+  <text x="580" y="402" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="11" font-weight="600" fill="#002766">return</text>
+  <text x="580" y="422" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">ws_endpoint</text>
+
+  <!-- NO path (down) → list_profiles recovery -->
+  <path d="M340,460 V510" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#flow-mut)"/>
+  <rect x="312" y="478" width="56" height="16" fill="#F7FAFF"/><text x="316" y="490" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">any error</text>
+
+  <!-- list_profiles (recovery: check what's already running) -->
+  <rect x="260" y="510" width="160" height="50" rx="8" fill="#FFFFFF" stroke="#002766" stroke-width="1.5"/>
+  <text x="340" y="530" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="12" font-weight="600" fill="#002766">list_profiles</text>
+  <text x="340" y="550" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">re-check running profiles</text>
+
+  <!-- Diamond: found running? -->
+  <path d="M340,610 L420,660 L340,710 L260,660 Z" fill="#F0F8FF" stroke="#1890FF" stroke-width="1.8"/>
+  <text x="340" y="662" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="11" font-weight="600" fill="#002766">Found?</text>
+
+  <!-- Arrow: list_profiles → Diamond -->
+  <path d="M340,560 V610" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#flow-mut)"/>
+
+  <!-- YES (found already running) → return -->
+  <path d="M420,660 H520" fill="none" stroke="#1890FF" stroke-width="2" marker-end="url(#flow-accent)"/>
+  <rect x="450" y="652" width="40" height="16" fill="#F7FAFF"/><text x="454" y="664" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#1890FF">yes</text>
+
+  <!-- Return (right side, lower) -->
+  <rect x="520" y="630" width="120" height="60" rx="8" fill="url(#flow-focal)" stroke="#1890FF" stroke-width="1.8"/>
+  <text x="580" y="652" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="11" font-weight="600" fill="#002766">return</text>
+  <text x="580" y="672" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">ws_endpoint</text>
+
+  <!-- NO (not found at all) → error -->
+  <path d="M260,660 H160" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#flow-mut)"/>
+  <rect x="180" y="652" width="32" height="16" fill="#F7FAFF"/><text x="184" y="664" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">no</text>
+
+  <!-- Error node -->
+  <rect x="40" y="630" width="120" height="60" rx="8" fill="#FFF8F0" stroke="#51607A" stroke-width="1.5"/>
+  <text x="100" y="652" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="11" font-weight="600" fill="#002766">raise error</text>
+  <text x="100" y="672" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="8" fill="#51607A">not found</text>
+
+  <text x="24" y="690" font-family="Georgia,'Times New Roman',serif" font-style="italic" font-size="11" fill="#51607A">Key insight: when launch fails, we don't give up—we re-check what's actually running on the host, in case it started anyway.</text>
+</svg>

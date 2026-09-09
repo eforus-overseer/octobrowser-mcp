@@ -1,0 +1,74 @@
+<svg width="820" height="540" viewBox="0 0 820 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Architecture: AI assistant talks to octobrowser-mcp over MCP stdio; relay dispatches to conduits (Octo local + cloud API) and helmsman (Playwright/CDP), which drive Octo Browser.">
+  <defs>
+    <marker id="a-mut" markerWidth="9" markerHeight="7" refX="7.5" refY="3.5" orient="auto"><polygon points="0 0, 9 3.5, 0 7" fill="#51607A"/></marker>
+    <marker id="a-link" markerWidth="9" markerHeight="7" refX="7.5" refY="3.5" orient="auto"><polygon points="0 0, 9 3.5, 0 7" fill="#096DD9"/></marker>
+    <marker id="a-accent" markerWidth="9" markerHeight="7" refX="7.5" refY="3.5" orient="auto"><polygon points="0 0, 9 3.5, 0 7" fill="#1890FF"/></marker>
+    <linearGradient id="a-focal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F0F8FF"/><stop offset="1" stop-color="#E0F1FF"/></linearGradient>
+  </defs>
+
+  <!-- Figure card -->
+  <rect x="6" y="6" width="808" height="528" rx="18" fill="#F7FAFF" stroke="#D6E4FF" stroke-width="1.5"/>
+
+  <!-- Title -->
+  <text x="34" y="44" font-family="Georgia, 'Times New Roman', serif" font-size="24" fill="#002766">How OctoBrowser-MCP fits together</text>
+  <text x="35" y="66" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="9.5" letter-spacing="1.5" fill="#51607A">THREE MODULES · ONE JOB EACH · THE RELAY ONLY DELEGATES</text>
+
+  <!-- ARROWS (drawn first, behind boxes) -->
+  <!-- AI -> relay -->
+  <path d="M410,140 V196" fill="none" stroke="#096DD9" stroke-width="2" marker-end="url(#a-link)"/>
+  <!-- relay -> conduits -->
+  <path d="M370,242 V254 Q370,262 362,262 H229 Q221,262 221,270 V282" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#a-mut)"/>
+  <!-- relay -> helmsman -->
+  <path d="M450,242 V254 Q450,262 458,262 H593 Q601,262 601,270 V282" fill="none" stroke="#51607A" stroke-width="1.8" marker-end="url(#a-mut)"/>
+  <!-- conduits -> Octo APIs -->
+  <path d="M221,330 V434" fill="none" stroke="#096DD9" stroke-width="2" marker-end="url(#a-link)"/>
+  <!-- helmsman -> Octo Browser -->
+  <path d="M601,330 V434" fill="none" stroke="#096DD9" stroke-width="2" marker-end="url(#a-link)"/>
+  <!-- Octo APIs -> Octo Browser (launch, side-effect) -->
+  <path d="M330,461 H494" fill="none" stroke="#51607A" stroke-width="1.8" stroke-dasharray="5,4" marker-end="url(#a-mut)"/>
+
+  <!-- Arrow labels -->
+  <g font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="9" fill="#51607A">
+    <rect x="418" y="158" width="86" height="15" fill="#F7FAFF"/><text x="422" y="169">MCP · stdio</text>
+    <rect x="150" y="374" width="130" height="15" fill="#F7FAFF"/><text x="154" y="385" fill="#096DD9">HTTP :58888 / cloud</text>
+    <rect x="609" y="374" width="66" height="15" fill="#F7FAFF"/><text x="613" y="385" fill="#096DD9">CDP ws://</text>
+    <rect x="386" y="444" width="52" height="15" fill="#F7FAFF"/><text x="390" y="455">launch</text>
+  </g>
+
+  <!-- AI assistant (client) -->
+  <rect x="310" y="84" width="200" height="56" rx="8" fill="#EEF3FE" stroke="#9FB5DE" stroke-width="1.5"/>
+  <text x="410" y="107" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="13" font-weight="600" fill="#002766">AI assistant</text>
+  <text x="410" y="125" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="9" fill="#51607A">Claude Code · Cursor</text>
+
+  <!-- Server container -->
+  <rect x="96" y="184" width="628" height="162" rx="12" fill="#FFFFFF" stroke="#B7CBEE" stroke-width="1.5"/>
+  <rect x="112" y="174" width="146" height="20" rx="5" fill="#002766"/>
+  <text x="122" y="188" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="10" font-weight="600" fill="#FFFFFF">octobrowser-mcp</text>
+
+  <!-- relay.py (focal) -->
+  <rect x="330" y="196" width="160" height="46" rx="8" fill="url(#a-focal)" stroke="#1890FF" stroke-width="1.8"/>
+  <text x="410" y="216" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="13" font-weight="600" fill="#002766">relay.py</text>
+  <text x="410" y="232" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="9" fill="#096DD9">37 MCP tools</text>
+
+  <!-- conduits.py -->
+  <rect x="116" y="282" width="210" height="48" rx="8" fill="#FFFFFF" stroke="#002766" stroke-width="1.5"/>
+  <text x="221" y="303" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="13" font-weight="600" fill="#002766">conduits.py</text>
+  <text x="221" y="320" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="9" fill="#51607A">LocalConduit + CloudConduit</text>
+
+  <!-- helmsman.py -->
+  <rect x="496" y="282" width="210" height="48" rx="8" fill="#FFFFFF" stroke="#002766" stroke-width="1.5"/>
+  <text x="601" y="303" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="13" font-weight="600" fill="#002766">helmsman.py</text>
+  <text x="601" y="320" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="9" fill="#51607A">Playwright / CDP</text>
+
+  <!-- Octo APIs (external) -->
+  <rect x="116" y="434" width="214" height="54" rx="8" fill="#F0F5FF" stroke="#51607A" stroke-width="1.5"/>
+  <text x="223" y="456" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="13" font-weight="600" fill="#002766">Octo APIs</text>
+  <text x="223" y="473" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="9" fill="#51607A">local :58888 + cloud</text>
+
+  <!-- Octo Browser (external endpoint) -->
+  <rect x="494" y="434" width="212" height="54" rx="8" fill="#F0F5FF" stroke="#28CCCC" stroke-width="1.8"/>
+  <text x="600" y="456" text-anchor="middle" font-family="'Segoe UI','Helvetica Neue',Arial,system-ui,sans-serif" font-size="13" font-weight="600" fill="#002766">Octo Browser</text>
+  <text x="600" y="473" text-anchor="middle" font-family="ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace" font-size="9" fill="#51607A">antidetect profiles</text>
+
+  <text x="34" y="516" font-family="Georgia,'Times New Roman',serif" font-style="italic" font-size="13" fill="#51607A">The relay never touches Octo or the browser directly — it hands off to a conduit or the helmsman.</text>
+</svg>
