@@ -1,12 +1,10 @@
 """
-Browser Manager -- Playwright CDP integration for Octo Browser.
+Helmsman -- Playwright CDP steering for Octo Browser.
 
-Connects to Octo Browser profiles via Chrome DevTools Protocol (CDP)
-and provides a high-level API for page interaction, navigation,
-screenshot capture, and JavaScript execution.
+The Helmsman takes the helm of an Octo Browser profile over the Chrome
+DevTools Protocol (CDP) and offers a high-level surface for page interaction,
+navigation, screenshot capture and JavaScript execution.
 """
-
-from __future__ import annotations
 
 from typing import Any, Literal
 
@@ -19,18 +17,18 @@ from playwright.async_api import (
 )
 
 
-class BrowserManager:
-    """Manages browser connection and interaction through Playwright CDP.
+class Helmsman:
+    """Steers a browser connection through Playwright CDP.
 
-    Connects to an Octo Browser profile via its WebSocket debug endpoint
+    Takes the helm of an Octo Browser profile via its WebSocket debug endpoint
     and exposes methods for navigation, clicking, typing, screenshots, etc.
 
     Usage:
-        manager = BrowserManager()
-        await manager.connect("ws://localhost:12345/devtools/browser/abc")
-        await manager.navigate("https://example.com")
-        screenshot = await manager.screenshot()
-        await manager.disconnect()
+        helm = Helmsman()
+        await helm.connect("ws://localhost:12345/devtools/browser/abc")
+        await helm.navigate("https://example.com")
+        shot = await helm.screenshot()
+        await helm.disconnect()
     """
 
     def __init__(self) -> None:
@@ -42,16 +40,16 @@ class BrowserManager:
 
     @property
     def is_connected(self) -> bool:
-        """Check if browser is connected via CDP."""
+        """Report whether the browser is at the helm via CDP."""
         return self._browser is not None and self._browser.is_connected()
 
     async def _ensure_connected(self) -> None:
-        """Raise if browser is not connected."""
+        """Raise if the browser is not at the helm."""
         if not self.is_connected:
             raise ConnectionError("Browser not connected. Use browser_connect first.")
 
     async def _get_page(self) -> Page:
-        """Get the current active page, creating one if needed."""
+        """Hand back the active page, opening one if none is live."""
         await self._ensure_connected()
         assert self._browser is not None
 
@@ -72,10 +70,10 @@ class BrowserManager:
     # === Connection ===
 
     async def connect(self, ws_endpoint: str) -> None:
-        """Connect to browser via CDP WebSocket endpoint.
+        """Take the helm of a browser over a CDP WebSocket endpoint.
 
         Args:
-            ws_endpoint: WebSocket URL from Octo Browser profile start response.
+            ws_endpoint: WebSocket URL from an Octo Browser profile launch.
         """
         if self.is_connected:
             await self.disconnect()
@@ -84,7 +82,7 @@ class BrowserManager:
         self._browser = await self._playwright.chromium.connect_over_cdp(ws_endpoint)
         self._ws_endpoint = ws_endpoint
 
-        # Attach to existing context and page if available
+        # Latch onto an existing context and page if one is already open
         contexts = self._browser.contexts
         if contexts:
             self._context = contexts[0]
@@ -93,7 +91,7 @@ class BrowserManager:
                 self._page = pages[0]
 
     async def disconnect(self) -> None:
-        """Disconnect from browser without closing the Octo profile."""
+        """Let go of the helm without halting the Octo profile."""
         if self._browser:
             try:
                 await self._browser.close()
@@ -116,7 +114,7 @@ class BrowserManager:
             "domcontentloaded"
         ),
     ) -> None:
-        """Navigate to a URL.
+        """Steer the page to a URL.
 
         Args:
             url: Target URL.
@@ -127,17 +125,17 @@ class BrowserManager:
         await page.goto(url, wait_until=wait_until)
 
     async def get_url(self) -> str:
-        """Get the current page URL."""
+        """Report the current page URL."""
         page = await self._get_page()
         return page.url
 
     async def go_back(self) -> None:
-        """Navigate back in browser history."""
+        """Steer back through browser history."""
         page = await self._get_page()
         await page.go_back()
 
     async def go_forward(self) -> None:
-        """Navigate forward in browser history."""
+        """Steer forward through browser history."""
         page = await self._get_page()
         await page.go_forward()
 
@@ -156,12 +154,12 @@ class BrowserManager:
         button: Literal["left", "right", "middle"] = "left",
         click_count: int = 1,
     ) -> None:
-        """Click on an element or coordinates.
+        """Click an element or a point.
 
         Args:
             selector: CSS selector for the target element.
-            x: X coordinate for positional click.
-            y: Y coordinate for positional click.
+            x: X coordinate for a positional click.
+            y: Y coordinate for a positional click.
             button: Mouse button -- 'left', 'right', or 'middle'.
             click_count: Number of clicks (2 for double-click).
         """
@@ -180,13 +178,13 @@ class BrowserManager:
         selector: str | None = None,
         delay: float = 50,
     ) -> None:
-        """Type text into an element or the page.
+        """Enter text into an element or the page.
 
-        When selector is provided, uses `fill()` for instant input.
-        Without selector, simulates keystroke-by-keystroke typing.
+        With a selector, uses `fill()` for instant input. Without one, taps out
+        the text keystroke by keystroke.
 
         Args:
-            text: Text to type.
+            text: Text to enter.
             selector: CSS selector of the input element.
             delay: Delay between keystrokes in milliseconds (no-selector mode).
         """
@@ -198,7 +196,7 @@ class BrowserManager:
             await page.keyboard.type(text, delay=delay)
 
     async def press_key(self, key: str) -> None:
-        """Press a keyboard key.
+        """Tap a keyboard key.
 
         Args:
             key: Key name -- 'Enter', 'Tab', 'Escape', 'Backspace', 'ArrowDown', etc.
@@ -237,8 +235,8 @@ class BrowserManager:
             element = await page.query_selector(selector)
             if element is None:
                 raise ValueError(f"Element not found: {selector}")
-            # The wheel event goes to whatever is under the cursor, so move the
-            # mouse onto the element first -- otherwise the page scrolls instead.
+            # The wheel event lands on whatever sits under the cursor, so park the
+            # mouse over the element first -- otherwise the page scrolls instead.
             await element.scroll_into_view_if_needed()
             box = await element.bounding_box()
             if box:
@@ -248,7 +246,7 @@ class BrowserManager:
             await page.mouse.wheel(delta_x, delta_y)
 
     async def hover(self, selector: str) -> None:
-        """Hover over an element.
+        """Hover the cursor over an element.
 
         Args:
             selector: CSS selector of the target element.
@@ -257,11 +255,11 @@ class BrowserManager:
         await page.hover(selector)
 
     async def select_option(self, selector: str, value: str) -> None:
-        """Select an option in a dropdown.
+        """Pick an option in a dropdown.
 
         Args:
             selector: CSS selector of the <select> element.
-            value: Value of the option to select.
+            value: Value of the option to pick.
         """
         page = await self._get_page()
         await page.select_option(selector, value)
@@ -276,8 +274,8 @@ class BrowserManager:
         """Capture a screenshot.
 
         Args:
-            selector: CSS selector to screenshot a specific element.
-            full_page: Capture the entire scrollable page.
+            selector: CSS selector to shoot a specific element.
+            full_page: Shoot the entire scrollable page.
 
         Returns:
             PNG image bytes.
@@ -293,7 +291,7 @@ class BrowserManager:
         return await page.screenshot(full_page=full_page)
 
     async def get_text(self, selector: str) -> str:
-        """Get the text content of an element.
+        """Read the text content of an element.
 
         Args:
             selector: CSS selector of the element.
@@ -312,7 +310,7 @@ class BrowserManager:
         selector: str | None = None,
         outer: bool = True,
     ) -> str:
-        """Get HTML content of the page or an element.
+        """Read the HTML of the page or an element.
 
         Args:
             selector: CSS selector (returns full page HTML if omitted).
@@ -334,11 +332,11 @@ class BrowserManager:
         return await page.content()
 
     async def get_attribute(self, selector: str, attribute: str) -> str | None:
-        """Get an attribute value from an element.
+        """Read an attribute value off an element.
 
         Args:
             selector: CSS selector of the element.
-            attribute: Attribute name to retrieve.
+            attribute: Attribute name to read.
 
         Returns:
             Attribute value or None.
@@ -350,7 +348,7 @@ class BrowserManager:
         raise ValueError(f"Element not found: {selector}")
 
     async def query_selector_all(self, selector: str) -> list[dict[str, Any]]:
-        """Find all matching elements and return their metadata.
+        """Round up every matching element and describe each one.
 
         Args:
             selector: CSS selector to match.
@@ -388,7 +386,7 @@ class BrowserManager:
         timeout: int = 30000,
         state: Literal["attached", "detached", "visible", "hidden"] = "visible",
     ) -> None:
-        """Wait for an element to reach the specified state.
+        """Wait until an element reaches the given state.
 
         Args:
             selector: CSS selector of the element.
@@ -401,10 +399,10 @@ class BrowserManager:
     # === JavaScript ===
 
     async def evaluate(self, script: str) -> Any:
-        """Execute JavaScript on the page and return the result.
+        """Run JavaScript on the page and hand back the result.
 
         Args:
-            script: JavaScript code to execute.
+            script: JavaScript code to run.
 
         Returns:
             The return value of the script (JSON-serializable).
@@ -415,7 +413,7 @@ class BrowserManager:
     # === Tab Management ===
 
     async def list_tabs(self) -> list[dict[str, Any]]:
-        """List all open tabs across all contexts.
+        """Round up every open tab across all contexts.
 
         Returns:
             List of dicts with title, url, and active flag.
@@ -439,7 +437,7 @@ class BrowserManager:
         return tabs
 
     async def switch_tab(self, index: int) -> None:
-        """Switch to a tab by index.
+        """Bring a tab to the front by index.
 
         Args:
             index: Zero-based tab index.
@@ -458,10 +456,10 @@ class BrowserManager:
             raise ValueError(f"Tab index {index} out of range (0-{len(all_pages) - 1})")
 
     async def new_tab(self, url: str | None = None) -> None:
-        """Open a new tab, optionally navigating to a URL.
+        """Open a fresh tab, optionally steering it to a URL.
 
         Args:
-            url: URL to open in the new tab.
+            url: URL to open in the fresh tab.
         """
         await self._ensure_connected()
         assert self._browser is not None

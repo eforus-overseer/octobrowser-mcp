@@ -4,6 +4,17 @@
 
 ### Changed
 
+- **Rebranded to OctoBrowser-MCP.** Distribution renamed to `octobrowser-mcp`, the
+  console script and MCP server id are now `octobrowser-mcp`, and the import package is
+  `octobrowser_mcp`. Internals were renamed for clarity: `octo_client.py` → `conduits.py`
+  (`OctoLocalClient` → `LocalConduit`, `OctoCloudClient` → `CloudConduit`,
+  `OctoAPIError` → `OctoApiFault`, `extract_ws_endpoint` → `sniff_ws_endpoint`),
+  `browser_manager.py` → `helmsman.py` (`BrowserManager` → `Helmsman`), and
+  `server.py` → `relay.py`. **The 37 MCP tool names, their arguments and output are
+  unchanged** — only the Python surface moved.
+- Added a hero logo (original blue-octopus mark) and an MCP protocol mark under `assets/`,
+  and restructured the README around them.
+
 - **Migrated to MCP SDK 2.x** (`mcp>=2.0.0`). 2.0 removed the low-level
   `@server.list_tools()` / `@server.call_tool()` decorators this server was built on,
   so a clean install crashed on import; the server now uses the `MCPServer` API.

@@ -1,4 +1,4 @@
-"""Tests for the Octo Browser API clients.
+"""Tests for the Octo Browser API conduits.
 
 Requests are served by httpx.MockTransport, so no Octo Browser and no network
 access is needed. Each test asserts the request shape documented at
@@ -14,35 +14,35 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from octo_mcp.octo_client import (
-    OctoAPIError,
-    OctoCloudClient,
-    OctoLocalClient,
-    extract_ws_endpoint,
+from octobrowser_mcp.conduits import (
+    CloudConduit,
+    LocalConduit,
+    OctoApiFault,
+    sniff_ws_endpoint,
 )
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
 
-def cloud_client(handler: Handler, token: str | None = "test-token") -> OctoCloudClient:
-    """Cloud client wired to a mock transport."""
-    client = OctoCloudClient(api_token=token)
-    client._client = httpx.AsyncClient(
-        base_url=client.base_url,
+def cloud_conduit(handler: Handler, token: str | None = "test-token") -> CloudConduit:
+    """Cloud conduit wired to a mock transport."""
+    conduit = CloudConduit(api_token=token)
+    conduit._client = httpx.AsyncClient(
+        base_url=conduit.base_url,
         transport=httpx.MockTransport(handler),
         headers={"X-Octo-Api-Token": token} if token else {},
     )
-    return client
+    return conduit
 
 
-def local_client(handler: Handler, host: str = "localhost") -> OctoLocalClient:
-    """Local client wired to a mock transport."""
-    client = OctoLocalClient(host=host)
-    client._client = httpx.AsyncClient(
-        base_url=client.base_url,
+def local_conduit(handler: Handler, host: str = "localhost") -> LocalConduit:
+    """Local conduit wired to a mock transport."""
+    conduit = LocalConduit(host=host)
+    conduit._client = httpx.AsyncClient(
+        base_url=conduit.base_url,
         transport=httpx.MockTransport(handler),
     )
-    return client
+    return conduit
 
 
 def envelope(data: object, status: int = 200) -> httpx.Response:
@@ -57,8 +57,8 @@ async def test_get_profile_unwraps_envelope() -> None:
     """Cloud responses are wrapped in {success, msg, data} -- callers get data."""
     handler = lambda request: envelope({"uuid": "abc", "title": "work_US"})  # noqa: E731
 
-    client = cloud_client(handler)
-    profile = await client.get_profile("abc")
+    conduit = cloud_conduit(handler)
+    profile = await conduit.get_profile("abc")
 
     assert profile == {"uuid": "abc", "title": "work_US"}
 
@@ -71,8 +71,8 @@ async def test_search_profiles_params() -> None:
         seen.update(dict(request.url.params))
         return envelope([{"uuid": "abc", "title": "work_US"}])
 
-    client = cloud_client(handler)
-    profiles = await client.search_profiles(search="work", tags=["ads", "us"], page_len=20)
+    conduit = cloud_conduit(handler)
+    profiles = await conduit.search_profiles(search="work", tags=["ads", "us"], page_len=20)
 
     assert profiles == [{"uuid": "abc", "title": "work_US"}]
     assert seen["search"] == "work"
@@ -89,8 +89,8 @@ async def test_import_cookies_wraps_body() -> None:
         body.update(json.loads(request.content))
         return envelope("")
 
-    client = cloud_client(handler)
-    await client.import_cookies("abc", [{"name": "sid", "domain": ".example.com"}])
+    conduit = cloud_conduit(handler)
+    await conduit.import_cookies("abc", [{"name": "sid", "domain": ".example.com"}])
 
     assert body == {"cookies": [{"name": "sid", "domain": ".example.com"}]}
 
@@ -103,8 +103,8 @@ async def test_transfer_profiles_body() -> None:
         body.update(json.loads(request.content))
         return envelope("")
 
-    client = cloud_client(handler)
-    await client.transfer_profiles(["abc"], "buyer@example.com", transfer_proxy=True)
+    conduit = cloud_conduit(handler)
+    await conduit.transfer_profiles(["abc"], "buyer@example.com", transfer_proxy=True)
 
     assert body == {
         "uuids": ["abc"],
@@ -115,10 +115,10 @@ async def test_transfer_profiles_body() -> None:
 
 async def test_create_tag_rejects_hex_color() -> None:
     """The API takes colour names, not hex values."""
-    client = cloud_client(lambda request: envelope({}))
+    conduit = cloud_conduit(lambda request: envelope({}))
 
     with pytest.raises(ValueError, match="Invalid tag color"):
-        await client.create_tag("ads", color="#ff0000")
+        await conduit.create_tag("ads", color="#ff0000")
 
 
 async def test_team_extensions_paginate() -> None:
@@ -132,8 +132,8 @@ async def test_team_extensions_paginate() -> None:
         start = int(request.url.params["start"])
         return envelope(pages.get(start, []))
 
-    client = cloud_client(handler)
-    extensions = await client.get_team_extensions()
+    conduit = cloud_conduit(handler)
+    extensions = await conduit.get_team_extensions()
 
     assert len(extensions) == 26
 
@@ -147,10 +147,10 @@ async def test_api_error_carries_code() -> None:
             json={"success": False, "msg": "Bulk force stop error", "code": "profiles.stop_error"},
         )
 
-    client = cloud_client(handler)
+    conduit = cloud_conduit(handler)
 
-    with pytest.raises(OctoAPIError) as exc:
-        await client.force_stop_profiles(["abc"])
+    with pytest.raises(OctoApiFault) as exc:
+        await conduit.force_stop_profiles(["abc"])
 
     assert exc.value.code == "profiles.stop_error"
     assert exc.value.status_code == 400
@@ -159,10 +159,10 @@ async def test_api_error_carries_code() -> None:
 
 async def test_forbidden_mentions_token() -> None:
     """403 points at the token instead of leaking a raw httpx error."""
-    client = cloud_client(lambda request: httpx.Response(403, json={"success": False}))
+    conduit = cloud_conduit(lambda request: httpx.Response(403, json={"success": False}))
 
-    with pytest.raises(OctoAPIError, match="OCTO_API_TOKEN"):
-        await client.get_tags()
+    with pytest.raises(OctoApiFault, match="OCTO_API_TOKEN"):
+        await conduit.get_tags()
 
 
 async def test_forbidden_keeps_api_reason() -> None:
@@ -178,10 +178,10 @@ async def test_forbidden_keeps_api_reason() -> None:
             },
         )
 
-    client = cloud_client(handler)
+    conduit = cloud_conduit(handler)
 
-    with pytest.raises(OctoAPIError, match="No active subscription"):
-        await client.get_tags()
+    with pytest.raises(OctoApiFault, match="No active subscription"):
+        await conduit.get_tags()
 
 
 async def test_rate_limit_retries_then_gives_up(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -201,10 +201,10 @@ async def test_rate_limit_retries_then_gives_up(monkeypatch: pytest.MonkeyPatch)
         calls += 1
         return httpx.Response(429, headers={"Retry-After": "2"}, json={"success": False})
 
-    client = cloud_client(handler)
+    conduit = cloud_conduit(handler)
 
-    with pytest.raises(OctoAPIError, match="Rate limit"):
-        await client.get_tags()
+    with pytest.raises(OctoApiFault, match="Throttle not cleared"):
+        await conduit.get_tags()
 
     assert calls == 6  # initial attempt + MAX_RETRIES
     assert delays == [2.0] * 5  # Retry-After is honoured
@@ -212,10 +212,10 @@ async def test_rate_limit_retries_then_gives_up(monkeypatch: pytest.MonkeyPatch)
 
 async def test_missing_token_raises() -> None:
     """No token is a configuration error, not an API error."""
-    client = cloud_client(lambda request: envelope([]), token=None)
+    conduit = cloud_conduit(lambda request: envelope([]), token=None)
 
     with pytest.raises(ValueError, match="OCTO_API_TOKEN"):
-        await client.get_tags()
+        await conduit.get_tags()
 
 
 # === Local API ===
@@ -227,8 +227,8 @@ async def test_active_profiles_returns_bare_list() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[{"uuid": "abc", "state": "STARTED"}])
 
-    client = local_client(handler)
-    profiles = await client.get_active_profiles()
+    conduit = local_conduit(handler)
+    profiles = await conduit.get_active_profiles()
 
     assert profiles == [{"uuid": "abc", "state": "STARTED"}]
 
@@ -245,8 +245,8 @@ async def test_ws_endpoint_rewritten_to_configured_host() -> None:
             },
         )
 
-    client = local_client(handler, host="192.168.1.100")
-    result = await client.start_profile("abc")
+    conduit = local_conduit(handler, host="192.168.1.100")
+    result = await conduit.start_profile("abc")
 
     assert result["ws_endpoint"] == "ws://192.168.1.100:55834/devtools/browser/xyz"
 
@@ -261,8 +261,8 @@ async def test_start_profile_body() -> None:
         body.update(json.loads(request.content))
         return httpx.Response(200, json={"uuid": "abc"})
 
-    client = local_client(handler)
-    await client.start_profile("abc", headless=True, timeout=90, password="secret")
+    conduit = local_conduit(handler)
+    await conduit.start_profile("abc", headless=True, timeout=90, password="secret")
 
     assert body == {
         "uuid": "abc",
@@ -292,8 +292,8 @@ async def test_get_or_start_returns_running_profile_on_start_error() -> None:
         started = True  # someone else won the race
         return httpx.Response(400, json={"msg": "Profile already running", "code": 2})
 
-    client = local_client(handler)
-    result = await client.get_or_start_profile("abc")
+    conduit = local_conduit(handler)
+    result = await conduit.get_or_start_profile("abc")
 
     assert result["already_running"] is True
     assert result["uuid"] == "abc"
@@ -310,22 +310,22 @@ async def test_get_or_start_reraises_real_failure() -> None:
             return httpx.Response(200, json={"username": "user@example.com"})
         return httpx.Response(400, json={"msg": "Invalid proxy data", "code": 5})
 
-    client = local_client(handler)
+    conduit = local_conduit(handler)
 
-    with pytest.raises(OctoAPIError, match="Invalid proxy data"):
-        await client.get_or_start_profile("abc")
+    with pytest.raises(OctoApiFault, match="Invalid proxy data"):
+        await conduit.get_or_start_profile("abc")
 
 
 async def test_non_json_response_does_not_crash() -> None:
-    """An HTML error page from a proxy must not blow up the client."""
+    """An HTML error page from a proxy must not blow up the conduit."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(502, text="<html>Bad Gateway</html>")
 
-    client = local_client(handler)
+    conduit = local_conduit(handler)
 
-    with pytest.raises(OctoAPIError, match="Bad Gateway"):
-        await client.get_version()
+    with pytest.raises(OctoApiFault, match="Bad Gateway"):
+        await conduit.get_version()
 
 
 async def test_health_check_false_when_unreachable() -> None:
@@ -334,16 +334,16 @@ async def test_health_check_false_when_unreachable() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
-    client = local_client(handler)
+    conduit = local_conduit(handler)
 
-    assert await client.health_check() is False
+    assert await conduit.health_check() is False
 
 
 # === Helpers ===
 
 
-def test_extract_ws_endpoint_prefers_known_keys() -> None:
+def test_sniff_ws_endpoint_prefers_known_keys() -> None:
     """The endpoint is found in the usual key, and nested if needed."""
-    assert extract_ws_endpoint({"ws_endpoint": "ws://host/x"}) == "ws://host/x"
-    assert extract_ws_endpoint({"a": {"b": "wss://host/y"}}) == "wss://host/y"
-    assert extract_ws_endpoint({"debug_port": "55834"}) is None
+    assert sniff_ws_endpoint({"ws_endpoint": "ws://host/x"}) == "ws://host/x"
+    assert sniff_ws_endpoint({"a": {"b": "wss://host/y"}}) == "wss://host/y"
+    assert sniff_ws_endpoint({"debug_port": "55834"}) is None

@@ -1,17 +1,15 @@
 """
-Octo Browser API clients.
+Conduits to the Octo Browser API.
 
-Two clients mirror the two halves of the Octo Browser API:
+Two conduits mirror the two halves of the Octo Browser API:
 
-- ``OctoLocalClient`` -- local client API on port 58888: start/stop profiles,
-  list running profiles, one-time profiles, authentication.
-- ``OctoCloudClient`` -- cloud automation API: profile search and management,
-  tags, proxies, team extensions. Requires an API token.
+- ``LocalConduit`` -- nearside client API on port 58888: launch/halt profiles,
+  list running profiles, one-time profiles, sign-in.
+- ``CloudConduit`` -- cloud automation API: profile lookup and upkeep, tags,
+  proxies, team extensions. Needs an API token.
 
 API reference: https://documenter.getpostman.com/view/1801428/UVC6i6eA
 """
-
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -21,31 +19,31 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 
-logger = logging.getLogger("octo_mcp.client")
+logger = logging.getLogger("octobrowser_mcp.conduits")
 
-# Cloud API base URL. The docs list mirrors for providers that block the main
-# host (https://app.octobrowser-mirror1.com / .net / .org) -- override the
-# origin with the OCTO_API_URL environment variable.
+# Cloud API origin. The docs list mirrors for providers that fence off the main
+# host (https://app.octobrowser-mirror1.com / .net / .org) -- swap the origin
+# with the OCTO_API_URL environment variable.
 DEFAULT_CLOUD_API_URL = "https://app.octobrowser.net/api/v2/automation"
 
-# Page sizes accepted by the cloud API
+# Page sizes the cloud API is willing to accept
 VALID_PAGE_LENS = (10, 25, 50, 100)
 
-# Tag colors accepted by the cloud API (hex values are rejected)
+# Tag hues the cloud API accepts (raw hex is refused)
 TAG_COLORS = ("grey", "blue", "cyan", "orange", "green", "purple", "red", "yellow")
 
-# Rate limit handling: the docs require pausing for Retry-After on HTTP 429
+# Throttle handling: the docs ask callers to wait out Retry-After on HTTP 429
 MAX_RETRIES = 5
 MAX_BACKOFF = 15.0
 
 
-class OctoAPIError(Exception):
-    """Error returned by an Octo Browser API.
+class OctoApiFault(Exception):
+    """Trouble reported by an Octo Browser API.
 
     Attributes:
         status_code: HTTP status code of the failed response.
         code: Octo error code -- a string for the cloud API ("profiles.stop_error"),
-            an integer for local start errors (see START_ERROR_CODES in the docs).
+            an integer for local launch errors (see START_ERROR_CODES in the docs).
         data: Payload of the error response, if any.
     """
 
@@ -63,8 +61,8 @@ class OctoAPIError(Exception):
         self.data = data
 
 
-class _HttpClient:
-    """Shared HTTP plumbing: lazy client, 429 retries, connection errors."""
+class _HttpConduit:
+    """Shared HTTP plumbing: lazy client, 429 retries, connection faults."""
 
     def __init__(
         self,
@@ -81,7 +79,7 @@ class _HttpClient:
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the underlying HTTP client."""
+        """Fetch or spin up the underlying HTTP client."""
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
@@ -91,16 +89,16 @@ class _HttpClient:
         return self._client
 
     async def close(self) -> None:
-        """Close the HTTP client and release resources."""
+        """Shut the HTTP client and release resources."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
     async def _send(self, method: str, endpoint: str, **kwargs: Any) -> httpx.Response:
-        """Send a request, pausing and retrying while the API returns 429.
+        """Fire a request, pausing and retrying while the API answers 429.
 
         Raises:
-            ConnectionError: If the API is unreachable.
-            OctoAPIError: If the rate limit does not clear within MAX_RETRIES.
+            ConnectionError: If the API is out of reach.
+            OctoApiFault: If the throttle does not lift within MAX_RETRIES.
         """
         client = await self._get_client()
         backoff = 1.0
@@ -108,10 +106,10 @@ class _HttpClient:
         for attempt in range(MAX_RETRIES + 1):
             try:
                 response = await client.request(method, endpoint, **kwargs)
-            except httpx.RequestError as e:
+            except httpx.RequestError as exc:
                 raise ConnectionError(
-                    f"Failed to connect to {self.base_url}: {e}. {self._connection_hint}".strip()
-                ) from e
+                    f"Failed to reach {self.base_url}: {exc}. {self._connection_hint}".strip()
+                ) from exc
 
             if response.status_code != 429:
                 logger.debug("%s %s -> %s", method, endpoint, response.status_code)
@@ -120,27 +118,27 @@ class _HttpClient:
             if attempt == MAX_RETRIES:
                 break
 
-            delay = _retry_delay(response, backoff)
+            pause = _retry_delay(response, backoff)
             logger.warning(
-                "Rate limited on %s %s, sleeping %.1fs (attempt %d/%d)",
+                "Throttled on %s %s, sleeping %.1fs (attempt %d/%d)",
                 method,
                 endpoint,
-                delay,
+                pause,
                 attempt + 1,
                 MAX_RETRIES,
             )
-            await asyncio.sleep(delay)
+            await asyncio.sleep(pause)
             backoff = min(backoff * 2, MAX_BACKOFF)
 
-        raise OctoAPIError(
-            f"Rate limit not cleared after {MAX_RETRIES} retries on {method} {endpoint}. "
-            "Reduce request rate or upgrade the subscription plan.",
+        raise OctoApiFault(
+            f"Throttle not cleared after {MAX_RETRIES} retries on {method} {endpoint}. "
+            "Ease the request rate or upgrade the subscription plan.",
             status_code=429,
         )
 
 
 def _parse_json(response: httpx.Response) -> Any:
-    """Response body as JSON; a non-JSON body becomes a message instead of a crash."""
+    """Body as JSON; a non-JSON body becomes a message rather than a crash."""
     if not response.content:
         return {}
     try:
@@ -151,7 +149,7 @@ def _parse_json(response: httpx.Response) -> Any:
 
 
 def _retry_delay(response: httpx.Response, fallback: float) -> float:
-    """Seconds to wait before retrying, from the Retry-After header."""
+    """Seconds to hold before retrying, taken from the Retry-After header."""
     raw = response.headers.get("Retry-After")
     if raw:
         try:
@@ -163,25 +161,25 @@ def _retry_delay(response: httpx.Response, fallback: float) -> float:
     return fallback
 
 
-class OctoCloudClient(_HttpClient):
+class CloudConduit(_HttpConduit):
     """
-    Async client for the Octo Browser cloud API.
+    Async conduit to the Octo Browser cloud API.
 
-    Used for profile search and management, tags, proxies and team extensions.
-    Requires an API token (OCTO_API_TOKEN environment variable or api_token argument).
+    Handles profile lookup and upkeep, tags, proxies and team extensions.
+    Needs an API token (OCTO_API_TOKEN environment variable or api_token argument).
 
     Every cloud response is wrapped in {"success", "msg", "data"}; the methods
-    below return the unwrapped ``data`` payload.
+    below hand back the unwrapped ``data`` payload.
     """
 
     def __init__(self, api_token: str | None = None, base_url: str | None = None) -> None:
         """
-        Initialize the cloud API client.
+        Wire up the cloud API conduit.
 
         Args:
             api_token: Octo API token. Falls back to the OCTO_API_TOKEN env var.
             base_url: API base URL. Falls back to the OCTO_API_URL env var, then
-                to the default host. Use a mirror if your provider blocks the main one.
+                to the default host. Use a mirror if your provider fences off the main one.
         """
         self.api_token = api_token or os.environ.get("OCTO_API_TOKEN")
         headers = {"X-Octo-Api-Token": self.api_token} if self.api_token else {}
@@ -193,12 +191,12 @@ class OctoCloudClient(_HttpClient):
 
     async def _request(self, method: str, endpoint: str, **kwargs: Any) -> dict[str, Any]:
         """
-        Execute a request and return the full response envelope.
+        Run a request and hand back the full response envelope.
 
         Raises:
-            ValueError: If the API token is not set.
-            ConnectionError: If the API is unreachable.
-            OctoAPIError: If the API reports a failure.
+            ValueError: If the API token is missing.
+            ConnectionError: If the API is out of reach.
+            OctoApiFault: If the API flags a failure.
         """
         if not self.api_token:
             raise ValueError(
@@ -212,10 +210,10 @@ class OctoCloudClient(_HttpClient):
         if response.is_success and (not isinstance(payload, dict) or payload.get("success", True)):
             return payload if isinstance(payload, dict) else {"data": payload}
 
-        raise _cloud_error(response, payload, endpoint)
+        raise _cloud_fault(response, payload, endpoint)
 
     async def _request_data(self, method: str, endpoint: str, **kwargs: Any) -> Any:
-        """Execute a request and return the unwrapped ``data`` payload."""
+        """Run a request and hand back the unwrapped ``data`` payload."""
         envelope = await self._request(method, endpoint, **kwargs)
         return envelope.get("data")
 
@@ -230,13 +228,13 @@ class OctoCloudClient(_HttpClient):
         status: int | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Search profiles by title prefix or tags.
+        Look up profiles by title prefix or tags.
 
         Args:
             search: Title prefix -- the API matches from the beginning of the title,
                 not anywhere inside it.
             tags: Tags to filter by. Several tags mean AND: only profiles carrying
-                all of them are returned.
+                all of them come back.
             page: Page number, starting from 0.
             page_len: Results per page; must be 10, 25, 50 or 100 (nearest is used).
             fields: Comma-separated fields to return (default: "title,status,tags").
@@ -272,35 +270,35 @@ class OctoCloudClient(_HttpClient):
         self, name: str, exact_match: bool = True
     ) -> dict[str, Any] | None:
         """
-        Find a profile by title.
+        Track down a profile by title.
 
         Args:
             name: Profile title. The API searches by prefix, so `name` must be
                 the beginning of the title.
-            exact_match: If True, require the title to match exactly.
+            exact_match: If True, insist on an exact title match.
 
         Returns:
-            Profile dict with uuid, title, etc., or None if not found.
+            Profile dict with uuid, title, etc., or None if nothing matched.
         """
         profiles = await self.search_profiles(search=name, page_len=100)
 
         if exact_match:
-            for p in profiles:
-                if p.get("title") == name:
-                    return p
+            for candidate in profiles:
+                if candidate.get("title") == name:
+                    return candidate
             return None
 
         return profiles[0] if profiles else None
 
     async def get_profile_uuid_by_name(self, name: str) -> str | None:
         """
-        Get a profile UUID by exact title match.
+        Resolve a profile UUID by exact title match.
 
         Args:
             name: Profile title.
 
         Returns:
-            UUID string, or None if not found.
+            UUID string, or None if nothing matched.
         """
         profile = await self.find_profile_by_name(name, exact_match=True)
         uuid = profile.get("uuid") if profile else None
@@ -309,7 +307,7 @@ class OctoCloudClient(_HttpClient):
     # === Profile CRUD ===
 
     async def get_profile(self, uuid: str) -> dict[str, Any]:
-        """Get full profile data by UUID.
+        """Fetch full profile data by UUID.
 
         Args:
             uuid: Profile UUID.
@@ -321,29 +319,29 @@ class OctoCloudClient(_HttpClient):
         return dict(data or {})
 
     async def create_profile(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Create a profile.
+        """Mint a profile.
 
-        Any field left out is generated by Octo, so only pass what you need to
-        customize (title, tags, proxy, fingerprint, cookies, ...).
+        Any field left out is generated by Octo, so pass only what you want to
+        pin down (title, tags, proxy, fingerprint, cookies, ...).
 
         Args:
             data: Profile configuration.
 
         Returns:
-            Dict with the UUID of the created profile.
+            Dict with the UUID of the freshly minted profile.
         """
         created = await self._request_data("POST", "/profiles", json=data)
         return dict(created or {})
 
     async def update_profile(self, uuid: str, data: dict[str, Any]) -> dict[str, Any]:
-        """Update a profile by UUID.
+        """Revise a profile by UUID.
 
         Args:
             uuid: Profile UUID.
-            data: Fields to update.
+            data: Fields to revise.
 
         Returns:
-            Dict with the UUID of the updated profile.
+            Dict with the UUID of the revised profile.
         """
         updated = await self._request_data("PATCH", f"/profiles/{uuid}", json=data)
         return dict(updated or {})
@@ -351,11 +349,11 @@ class OctoCloudClient(_HttpClient):
     async def delete_profiles(
         self, uuids: list[str], skip_trash_bin: bool = True
     ) -> dict[str, Any]:
-        """Delete profiles by UUID.
+        """Discard profiles by UUID.
 
         Args:
-            uuids: Profile UUIDs to delete.
-            skip_trash_bin: Delete permanently instead of moving to the trash bin.
+            uuids: Profile UUIDs to discard.
+            skip_trash_bin: Discard permanently instead of moving to the trash bin.
 
         Returns:
             Dict with deleted_uuids and active_uuids (running profiles are skipped).
@@ -368,7 +366,7 @@ class OctoCloudClient(_HttpClient):
     async def import_cookies(
         self, uuid: str, cookies: list[dict[str, Any]] | str
     ) -> dict[str, Any]:
-        """Import cookies into a profile.
+        """Load cookies into a profile.
 
         Args:
             uuid: Profile UUID.
@@ -386,12 +384,12 @@ class OctoCloudClient(_HttpClient):
     async def transfer_profiles(
         self, uuids: list[str], receiver_email: str, transfer_proxy: bool = False
     ) -> dict[str, Any]:
-        """Transfer profiles to another account.
+        """Hand profiles over to another account.
 
         Args:
-            uuids: Profile UUIDs to transfer (up to 100 per request).
+            uuids: Profile UUIDs to hand over (up to 100 per request).
             receiver_email: Email of the receiving account.
-            transfer_proxy: Also transfer the proxies attached to the profiles.
+            transfer_proxy: Also hand over the proxies attached to the profiles.
 
         Returns:
             Transfer result.
@@ -408,13 +406,13 @@ class OctoCloudClient(_HttpClient):
         return {"result": result}
 
     async def force_stop_profiles(self, uuids: list[str]) -> dict[str, Any]:
-        """Force stop running profiles across the whole team (cloud-side).
+        """Force-halt running profiles across the whole team (cloud-side).
 
-        Unlike OctoLocalClient.force_stop_profile this also stops profiles
+        Unlike LocalConduit.force_stop_profile this also halts profiles
         running on other machines.
 
         Args:
-            uuids: Profile UUIDs to stop.
+            uuids: Profile UUIDs to halt.
 
         Returns:
             Result payload; failed UUIDs are listed under "failed".
@@ -425,9 +423,9 @@ class OctoCloudClient(_HttpClient):
     # === Team extensions ===
 
     async def get_team_extensions(self, page_size: int = 25) -> list[dict[str, Any]]:
-        """Get all extensions used by the team.
+        """Gather every extension the team uses.
 
-        The endpoint is paginated, so all pages are fetched.
+        The endpoint is paginated, so all pages are walked.
 
         Args:
             page_size: Items per request.
@@ -438,7 +436,7 @@ class OctoCloudClient(_HttpClient):
         extensions: list[dict[str, Any]] = []
         start = 0
 
-        for _ in range(100):  # hard stop, ~2500 extensions with the default page size
+        for _ in range(100):  # hard stop, ~2500 extensions at the default page size
             page = await self._request_data(
                 "GET", "/teams/extensions", params={"start": start, "limit": page_size}
             )
@@ -451,10 +449,10 @@ class OctoCloudClient(_HttpClient):
         return extensions
 
     async def delete_team_extensions(self, uuids: list[str]) -> dict[str, Any]:
-        """Delete team extensions by UUID.
+        """Discard team extensions by UUID.
 
-        Extensions in use by a running profile come back to the list once that
-        profile stops -- stop the profiles first.
+        Extensions in use by a running profile reappear in the list once that
+        profile halts -- halt the profiles first.
 
         Args:
             uuids: Extension UUIDs (up to 100 per request), e.g. "abc123@2.0.12".
@@ -468,7 +466,7 @@ class OctoCloudClient(_HttpClient):
     # === Tags ===
 
     async def get_tags(self) -> list[dict[str, Any]]:
-        """Get all tags.
+        """Gather every tag.
 
         Returns:
             List of tags with uuid, name and color.
@@ -477,7 +475,7 @@ class OctoCloudClient(_HttpClient):
         return list(data or [])
 
     async def create_tag(self, name: str, color: str = "grey") -> dict[str, Any]:
-        """Create a tag.
+        """Mint a tag.
 
         Args:
             name: Tag name.
@@ -485,7 +483,7 @@ class OctoCloudClient(_HttpClient):
                 purple, red, yellow.
 
         Returns:
-            Created tag data.
+            Freshly minted tag data.
         """
         _validate_tag_color(color)
         created = await self._request_data("POST", "/tags", json={"name": name, "color": color})
@@ -497,7 +495,7 @@ class OctoCloudClient(_HttpClient):
         name: str | None = None,
         color: str | None = None,
     ) -> dict[str, Any]:
-        """Update a tag by UUID.
+        """Revise a tag by UUID.
 
         Args:
             uuid: Tag UUID.
@@ -505,7 +503,7 @@ class OctoCloudClient(_HttpClient):
             color: New tag color, one of TAG_COLORS.
 
         Returns:
-            Updated tag data.
+            Revised tag data.
         """
         data: dict[str, Any] = {}
         if name is not None:
@@ -517,7 +515,7 @@ class OctoCloudClient(_HttpClient):
         return dict(updated or {})
 
     async def delete_tag(self, uuid: str) -> dict[str, Any]:
-        """Delete a tag by UUID.
+        """Discard a tag by UUID.
 
         Args:
             uuid: Tag UUID.
@@ -531,7 +529,7 @@ class OctoCloudClient(_HttpClient):
     # === Proxies ===
 
     async def get_proxies(self) -> list[dict[str, Any]]:
-        """Get all saved proxies.
+        """Gather every saved proxy.
 
         Returns:
             List of proxies with uuid, type, host, port, title, profiles_count.
@@ -540,33 +538,33 @@ class OctoCloudClient(_HttpClient):
         return list(data or [])
 
     async def create_proxy(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Create a saved proxy.
+        """Mint a saved proxy.
 
         Args:
             data: Proxy config -- type, host, port and optionally login, password,
                 title, change_ip_url, external_id.
 
         Returns:
-            Created proxy data.
+            Freshly minted proxy data.
         """
         created = await self._request_data("POST", "/proxies", json=data)
         return dict(created or {})
 
     async def update_proxy(self, uuid: str, data: dict[str, Any]) -> dict[str, Any]:
-        """Update a proxy by UUID.
+        """Revise a proxy by UUID.
 
         Args:
             uuid: Proxy UUID.
-            data: Fields to update.
+            data: Fields to revise.
 
         Returns:
-            Updated proxy data.
+            Revised proxy data.
         """
         updated = await self._request_data("PATCH", f"/proxies/{uuid}", json=data)
         return dict(updated or {})
 
     async def delete_proxy(self, uuid: str) -> dict[str, Any]:
-        """Delete a proxy by UUID.
+        """Discard a proxy by UUID.
 
         Args:
             uuid: Proxy UUID.
@@ -579,13 +577,13 @@ class OctoCloudClient(_HttpClient):
 
 
 def _validate_tag_color(color: str) -> None:
-    """Reject colors the API does not accept (it takes names, not hex)."""
+    """Refuse hues the API will not take (it wants names, not hex)."""
     if color not in TAG_COLORS:
         raise ValueError(f"Invalid tag color '{color}'. Allowed: {', '.join(TAG_COLORS)}")
 
 
-def _cloud_error(response: httpx.Response, payload: Any, endpoint: str) -> OctoAPIError:
-    """Build an OctoAPIError from a failed cloud API response."""
+def _cloud_fault(response: httpx.Response, payload: Any, endpoint: str) -> OctoApiFault:
+    """Assemble an OctoApiFault from a failed cloud API response."""
     body = payload if isinstance(payload, dict) else {}
     msg = body.get("msg") or ""
     code = body.get("code")
@@ -605,17 +603,17 @@ def _cloud_error(response: httpx.Response, payload: Any, endpoint: str) -> OctoA
         if msg and code:
             message = f"{msg} ({code})"
 
-    return OctoAPIError(message, status_code=status, code=code, data=body.get("data"))
+    return OctoApiFault(message, status_code=status, code=code, data=body.get("data"))
 
 
-class OctoLocalClient(_HttpClient):
+class LocalConduit(_HttpConduit):
     """
-    Async client for the Octo Browser local API.
+    Async conduit to the Octo Browser local API.
 
-    The local API runs on port 58888 alongside the desktop app and provides:
-    - profile start/stop
+    The local API runs on port 58888 next to the desktop app and offers:
+    - profile launch/halt
     - list of running profiles
-    - authentication
+    - sign-in
     - one-time (temporary) profiles
     """
 
@@ -627,13 +625,13 @@ class OctoLocalClient(_HttpClient):
         password: str | None = None,
     ) -> None:
         """
-        Initialize the local API client.
+        Wire up the local API conduit.
 
         Args:
             host: Host running Octo Browser (default: localhost).
             port: Local API port (default: 58888).
-            username: Octo account email for auto-login.
-            password: Octo account password for auto-login.
+            username: Octo account email for auto-sign-in.
+            password: Octo account password for auto-sign-in.
         """
         self.host = host
         self.port = port
@@ -647,38 +645,38 @@ class OctoLocalClient(_HttpClient):
 
     async def _request(self, method: str, endpoint: str, **kwargs: Any) -> Any:
         """
-        Execute a request against the local API.
+        Run a request against the local API.
 
         ws:// endpoints in the response are rewritten to the configured host.
 
         Raises:
-            ConnectionError: If Octo Browser is unreachable.
-            OctoAPIError: If the local API reports a failure.
+            ConnectionError: If Octo Browser is out of reach.
+            OctoApiFault: If the local API flags a failure.
         """
         response = await self._send(method, endpoint, **kwargs)
         payload: Any = _parse_json(response)
 
         if not response.is_success:
             body = payload if isinstance(payload, dict) else {}
-            raise OctoAPIError(
+            raise OctoApiFault(
                 body.get("msg") or f"Octo local API error {response.status_code} on {endpoint}",
                 status_code=response.status_code,
                 code=body.get("code"),
                 data=body.get("data"),
             )
 
-        return self._rewrite_ws_endpoints(payload)
+        return self._rehome_ws_endpoints(payload)
 
-    def _rewrite_ws_endpoints(self, data: Any) -> Any:
+    def _rehome_ws_endpoints(self, data: Any) -> Any:
         """
-        Recursively replace 127.0.0.1/localhost in ws:// URLs with the configured host.
+        Recursively swap 127.0.0.1/localhost in ws:// URLs for the configured host.
 
         Needed when Octo Browser runs on another machine or inside Docker.
         """
         if isinstance(data, dict):
-            return {k: self._rewrite_ws_endpoints(v) for k, v in data.items()}
+            return {k: self._rehome_ws_endpoints(v) for k, v in data.items()}
         if isinstance(data, list):
-            return [self._rewrite_ws_endpoints(item) for item in data]
+            return [self._rehome_ws_endpoints(item) for item in data]
         if isinstance(data, str) and data.startswith(("ws://", "wss://")):
             parsed = urlparse(data)
             if parsed.hostname in ("127.0.0.1", "localhost"):
@@ -695,13 +693,13 @@ class OctoLocalClient(_HttpClient):
                 )
         return data
 
-    # === Authentication ===
+    # === Sign-in ===
 
     async def login(
         self, email: str, password: str, api_token: str | None = None
     ) -> dict[str, Any]:
         """
-        Log in to an Octo Browser account (requires Octo Browser 1.8.0+).
+        Sign in to an Octo Browser account (needs Octo Browser 1.8.0+).
 
         Args:
             email: Account email.
@@ -709,7 +707,7 @@ class OctoLocalClient(_HttpClient):
             api_token: Optional API token to attach to the session.
 
         Returns:
-            Login response.
+            Sign-in response.
         """
         payload: dict[str, Any] = {"email": email, "password": password}
         if api_token:
@@ -718,42 +716,42 @@ class OctoLocalClient(_HttpClient):
         return dict(result or {})
 
     async def logout(self) -> dict[str, Any]:
-        """Log out of the current account (requires Octo Browser 1.8.0+)."""
+        """Sign out of the current account (needs Octo Browser 1.8.0+)."""
         result = await self._request("POST", "/auth/logout")
         return dict(result or {})
 
     async def get_username(self) -> dict[str, Any]:
-        """Get the currently logged-in user."""
+        """Report the currently signed-in user."""
         result = await self._request("GET", "/username")
         return dict(result or {})
 
     async def ensure_logged_in(self) -> bool:
         """
-        Check authentication and log in if credentials were provided.
+        Confirm sign-in and sign in if credentials were supplied.
 
         Returns:
-            True if authenticated, False otherwise.
+            True if signed in, False otherwise.
         """
         try:
             user = await self.get_username()
             if user.get("username"):
                 return True
-        except (OctoAPIError, ConnectionError) as e:
-            logger.debug("Not logged in yet: %s", e)
+        except (OctoApiFault, ConnectionError) as exc:
+            logger.debug("Not signed in yet: %s", exc)
 
         if self.username and self.password:
             try:
                 await self.login(self.username, self.password)
                 return True
-            except (OctoAPIError, ConnectionError) as e:
-                logger.warning("Auto-login failed: %s", e)
+            except (OctoApiFault, ConnectionError) as exc:
+                logger.warning("Auto-sign-in failed: %s", exc)
         return False
 
     # === Profile management ===
 
     async def get_active_profiles(self) -> list[dict[str, Any]]:
         """
-        Get the profiles currently running on this machine.
+        Report the profiles running on this machine right now.
 
         Returns:
             List of profiles with uuid, state, ws_endpoint, debug_port, browser_pid.
@@ -773,15 +771,15 @@ class OctoLocalClient(_HttpClient):
         password: str | None = None,
     ) -> dict[str, Any]:
         """
-        Start a profile.
+        Launch a profile.
 
         Args:
             uuid: Profile UUID.
             headless: Run without a GUI.
             debug_port: True picks a free automation port, an int (1024-65534)
-                pins a specific one, False disables CDP.
-            timeout: Start timeout in seconds; raise it for slow proxies.
-            flags: Extra Chromium flags (Octo recommends against using these).
+                pins a specific one, False switches off CDP.
+            timeout: Launch timeout in seconds; raise it for slow proxies.
+            flags: Extra Chromium flags (Octo advises against these).
             password: Profile password, if the profile is protected.
 
         Returns:
@@ -803,31 +801,31 @@ class OctoLocalClient(_HttpClient):
         if password:
             payload["password"] = password
 
-        logger.info("Starting profile %s (headless=%s)", uuid, headless)
+        logger.info("Launching profile %s (headless=%s)", uuid, headless)
         result = await self._request("POST", "/profiles/start", json=payload)
         return dict(result or {})
 
     async def stop_profile(self, uuid: str) -> dict[str, Any]:
         """
-        Gracefully stop a running profile.
+        Gracefully halt a running profile.
 
         Args:
             uuid: Profile UUID.
         """
-        logger.info("Stopping profile %s", uuid)
+        logger.info("Halting profile %s", uuid)
         result = await self._request("POST", "/profiles/stop", json={"uuid": uuid})
         return dict(result or {})
 
     async def force_stop_profile(self, uuid: str) -> dict[str, Any]:
         """
-        Forcefully stop a running profile (requires Octo Browser 1.7+).
+        Force-halt a running profile (needs Octo Browser 1.7+).
 
-        Use when a graceful stop does not work.
+        Reach for this when a graceful halt will not take.
 
         Args:
             uuid: Profile UUID.
         """
-        logger.info("Force stopping profile %s", uuid)
+        logger.info("Force-halting profile %s", uuid)
         result = await self._request("POST", "/profiles/force_stop", json={"uuid": uuid})
         return dict(result or {})
 
@@ -855,10 +853,10 @@ class OctoLocalClient(_HttpClient):
         password: str | None = None,
     ) -> dict[str, Any]:
         """
-        Return the running profile, starting it if needed.
+        Hand back the running profile, launching it if need be.
 
-        This is the recommended way to obtain a ws_endpoint: it handles the case
-        where the profile is already running (locally or started by someone else).
+        This is the recommended way to obtain a ws_endpoint: it covers the case
+        where the profile is already running (locally or launched by someone else).
 
         Args:
             uuid: Profile UUID.
@@ -881,9 +879,9 @@ class OctoLocalClient(_HttpClient):
                 debug_port=debug_port,
                 password=password,
             )
-        except OctoAPIError:
-            # The profile may have been started in parallel; the error code for that
-            # differs between client versions, so check the running list instead.
+        except OctoApiFault:
+            # The profile may have been launched in parallel; the error code for
+            # that differs between client versions, so consult the running list.
             profile = await self.get_profile_by_uuid(uuid)
             if profile:
                 profile["already_running"] = True
@@ -907,11 +905,11 @@ class OctoLocalClient(_HttpClient):
         timeout: int = 60,
     ) -> dict[str, Any]:
         """
-        Create and start a one-time (temporary) profile.
+        Mint and launch a one-time (temporary) profile.
 
-        One-time profiles are not synced and are removed when stopped, which makes
-        them faster to start and stop. One such request counts as 4 against the
-        rate limit.
+        One-time profiles are not synced and vanish when halted, which makes
+        them quicker to launch and halt. One such request counts as 4 against the
+        throttle.
 
         Args:
             fingerprint_os: Fingerprint OS -- win, mac, lin or android.
@@ -919,9 +917,9 @@ class OctoLocalClient(_HttpClient):
             debug_port: True picks a free automation port, an int pins one.
             proxy: Proxy config (type, host, port, login, password).
             cookies: Cookies to inject.
-            start_pages: URLs to open on start.
+            start_pages: URLs to open on launch.
             flags: Extra Chromium flags.
-            timeout: Start timeout in seconds.
+            timeout: Launch timeout in seconds.
 
         Returns:
             Dict with uuid, ws_endpoint and profile info.
@@ -946,7 +944,7 @@ class OctoLocalClient(_HttpClient):
         if flags:
             payload["flags"] = flags
 
-        logger.info("Starting one-time profile (os=%s, headless=%s)", fingerprint_os, headless)
+        logger.info("Launching one-time profile (os=%s, headless=%s)", fingerprint_os, headless)
         result = await self._request("POST", "/profiles/one_time/start", json=payload)
         return dict(result or {})
 
@@ -954,7 +952,7 @@ class OctoLocalClient(_HttpClient):
 
     async def get_version(self) -> dict[str, Any]:
         """
-        Get Octo Browser version info.
+        Report Octo Browser version info.
 
         Returns:
             Dict with current, latest and update_required.
@@ -964,7 +962,7 @@ class OctoLocalClient(_HttpClient):
 
     async def health_check(self) -> bool:
         """
-        Check whether the local API is reachable.
+        Probe whether the local API answers.
 
         Returns:
             True if the API responds, False otherwise.
@@ -972,16 +970,16 @@ class OctoLocalClient(_HttpClient):
         try:
             await self.get_version()
             return True
-        except (OctoAPIError, ConnectionError) as e:
-            logger.debug("Health check failed: %s", e)
+        except (OctoApiFault, ConnectionError) as exc:
+            logger.debug("Health probe failed: %s", exc)
             return False
 
 
-def extract_ws_endpoint(data: dict[str, Any]) -> str | None:
+def sniff_ws_endpoint(data: dict[str, Any]) -> str | None:
     """
-    Extract the CDP WebSocket endpoint from an API response.
+    Sniff out the CDP WebSocket endpoint in an API response.
 
-    Checks the common keys first, then searches the whole response.
+    Checks the usual keys first, then combs the whole response.
 
     Args:
         data: API response dictionary.
@@ -994,19 +992,19 @@ def extract_ws_endpoint(data: dict[str, Any]) -> str | None:
         if isinstance(val, str) and val.startswith(("ws://", "wss://")):
             return val
 
-    def search(node: Any) -> str | None:
+    def comb(node: Any) -> str | None:
         if isinstance(node, dict):
-            for v in node.values():
-                if isinstance(v, str) and v.startswith(("ws://", "wss://")):
-                    return v
-                result = search(v)
-                if result:
-                    return result
+            for value in node.values():
+                if isinstance(value, str) and value.startswith(("ws://", "wss://")):
+                    return value
+                hit = comb(value)
+                if hit:
+                    return hit
         elif isinstance(node, list):
             for item in node:
-                result = search(item)
-                if result:
-                    return result
+                hit = comb(item)
+                if hit:
+                    return hit
         return None
 
-    return search(data)
+    return comb(data)

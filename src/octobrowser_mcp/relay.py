@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Octo Browser MCP server.
+OctoBrowser-MCP relay.
 
-Exposes Octo Browser profile management (local + cloud API) and Playwright/CDP
-browser automation as MCP tools, so an AI assistant can drive antidetect profiles.
+Relays Octo Browser profile management (local + cloud API) and Playwright/CDP
+browser steering to an AI assistant as MCP tools, so the assistant can drive
+antidetect profiles.
 
 Tool schemas are derived from the function signatures below: parameter
 descriptions come from Field(description=...), allowed values from Literal, and
@@ -21,12 +22,12 @@ from mcp.server.mcpserver import Image
 from pydantic import Field
 
 from . import __version__
-from .browser_manager import BrowserManager
-from .octo_client import OctoCloudClient, OctoLocalClient, extract_ws_endpoint
+from .conduits import CloudConduit, LocalConduit, sniff_ws_endpoint
+from .helmsman import Helmsman
 
-logger = logging.getLogger("octo_mcp.server")
+logger = logging.getLogger("octobrowser_mcp.relay")
 
-# Configuration from environment variables
+# Configuration drawn from environment variables
 OCTO_HOST = os.getenv("OCTO_HOST", "localhost")
 OCTO_PORT = int(os.getenv("OCTO_PORT", "58888"))
 OCTO_USERNAME = os.getenv("OCTO_USERNAME", "")
@@ -35,10 +36,10 @@ OCTO_API_TOKEN = os.getenv("OCTO_API_TOKEN", "")
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
-# Truncate huge pages so a single tool call cannot blow up the context
+# Trim oversized pages so a single tool call cannot swamp the context
 MAX_HTML_CHARS = 50_000
 
-# Repeated parameter annotations
+# Reused parameter annotations
 Selector = Annotated[str, Field(description="CSS selector of the element")]
 OptionalSelector = Annotated[
     str | None, Field(description="CSS selector of the element (optional)")
@@ -48,42 +49,42 @@ ProfilePassword = Annotated[
     str | None, Field(description="Profile password, if the profile is protected")
 ]
 
-octo_client: OctoLocalClient | None = None
-octo_cloud_client: OctoCloudClient | None = None
-browser_manager: BrowserManager | None = None
+_local: LocalConduit | None = None
+_cloud: CloudConduit | None = None
+_helm: Helmsman | None = None
 
 
-def get_octo_client() -> OctoLocalClient:
-    """Get the local API client."""
-    global octo_client
-    if octo_client is None:
-        octo_client = OctoLocalClient(
+def local_conduit() -> LocalConduit:
+    """Hand back the local API conduit, wiring it up on first use."""
+    global _local
+    if _local is None:
+        _local = LocalConduit(
             host=OCTO_HOST,
             port=OCTO_PORT,
             username=OCTO_USERNAME or None,
             password=OCTO_PASSWORD or None,
         )
-    return octo_client
+    return _local
 
 
-def get_browser_manager() -> BrowserManager:
-    """Get the Playwright browser manager."""
-    global browser_manager
-    if browser_manager is None:
-        browser_manager = BrowserManager()
-    return browser_manager
+def helm() -> Helmsman:
+    """Hand back the Playwright helmsman, wiring it up on first use."""
+    global _helm
+    if _helm is None:
+        _helm = Helmsman()
+    return _helm
 
 
-def get_octo_cloud_client() -> OctoCloudClient:
-    """Get the cloud API client (profile search and management)."""
-    global octo_cloud_client
-    if octo_cloud_client is None:
-        octo_cloud_client = OctoCloudClient(api_token=OCTO_API_TOKEN or None)
-    return octo_cloud_client
+def cloud_conduit() -> CloudConduit:
+    """Hand back the cloud API conduit (profile search and upkeep)."""
+    global _cloud
+    if _cloud is None:
+        _cloud = CloudConduit(api_token=OCTO_API_TOKEN or None)
+    return _cloud
 
 
 def _log_level() -> Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
-    """Log level from the environment, falling back to WARNING."""
+    """Log level drawn from the environment, falling back to WARNING."""
     level = os.getenv("OCTO_LOG_LEVEL", "WARNING").upper()
     if level not in LOG_LEVELS:
         return "WARNING"
@@ -91,10 +92,10 @@ def _log_level() -> Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
 
 
 server = MCPServer(
-    "octo-mcp",
+    "octobrowser-mcp",
     version=__version__,
     instructions=(
-        "Control Octo Browser antidetect profiles: start and stop them through the local "
+        "Steer Octo Browser antidetect profiles: launch and halt them through the local "
         "API, search and inspect them through the cloud API, then drive the running "
         "browser over CDP. Typical flow: octo_start_profile (or octo_start_profile_by_name) "
         "-> browser_connect with the returned ws_endpoint -> browser_* tools."
@@ -109,13 +110,13 @@ server = MCPServer(
 @server.tool()
 async def octo_health_check() -> str:
     """Check that the Octo Browser API is reachable. Call this first to verify the app is running."""
-    client = get_octo_client()
-    if not await client.health_check():
+    conduit = local_conduit()
+    if not await conduit.health_check():
         return (
-            f"Octo Browser API is unavailable at {client.base_url}. "
+            f"Octo Browser API is unavailable at {conduit.base_url}. "
             "Make sure Octo Browser is running."
         )
-    version = await client.get_version()
+    version = await conduit.get_version()
     return (
         "Octo Browser API is available.\n"
         f"Version: {version.get('current', 'unknown')} (latest: {version.get('latest', 'unknown')})"
@@ -125,7 +126,7 @@ async def octo_health_check() -> str:
 @server.tool()
 async def octo_list_profiles() -> str:
     """List the profiles currently running on this machine, with UUID, title and ws_endpoint."""
-    profiles = await get_octo_client().get_active_profiles()
+    profiles = await local_conduit().get_active_profiles()
     if not profiles:
         return "No running profiles."
 
@@ -133,7 +134,7 @@ async def octo_list_profiles() -> str:
     for p in profiles:
         lines.append(f"- UUID: {p.get('uuid', 'N/A')}")
         lines.append(f"  Title: {p.get('title', p.get('name', 'N/A'))}")
-        lines.append(f"  ws_endpoint: {extract_ws_endpoint(p) or 'N/A'}")
+        lines.append(f"  ws_endpoint: {sniff_ws_endpoint(p) or 'N/A'}")
         lines.append("")
     return "\n".join(lines)
 
@@ -148,10 +149,10 @@ async def octo_start_profile(
 
     If the profile is already running, its current data is returned instead.
     """
-    result = await get_octo_client().get_or_start_profile(
+    result = await local_conduit().get_or_start_profile(
         uuid=uuid, headless=headless, password=password
     )
-    return _format_started(uuid, result)
+    return _render_launch(uuid, result)
 
 
 @server.tool()
@@ -162,11 +163,11 @@ async def octo_stop_profile(
     ] = False,
 ) -> str:
     """Stop a running Octo Browser profile by UUID."""
-    client = get_octo_client()
+    conduit = local_conduit()
     if force:
-        await client.force_stop_profile(uuid)
+        await conduit.force_stop_profile(uuid)
     else:
-        await client.stop_profile(uuid)
+        await conduit.stop_profile(uuid)
     return f"Profile {uuid} stopped."
 
 
@@ -181,11 +182,11 @@ async def octo_start_one_time_profile(
 
     It is removed once stopped and starts faster than a regular profile, which suits scraping.
     """
-    result = await get_octo_client().start_one_time_profile(fingerprint_os=os, headless=headless)
+    result = await local_conduit().start_one_time_profile(fingerprint_os=os, headless=headless)
     return (
         f"One-time profile started.\n"
         f"UUID: {result.get('uuid', 'N/A')}\n"
-        f"ws_endpoint: {extract_ws_endpoint(result)}\n\n"
+        f"ws_endpoint: {sniff_ws_endpoint(result)}\n\n"
         "Pass this ws_endpoint to browser_connect. The profile is deleted when stopped."
     )
 
@@ -202,7 +203,7 @@ async def octo_find_profile_by_name(
 
     Requires OCTO_API_TOKEN.
     """
-    profile = await get_octo_cloud_client().find_profile_by_name(name, exact_match=exact_match)
+    profile = await cloud_conduit().find_profile_by_name(name, exact_match=exact_match)
     if not profile:
         return f"No profile titled '{name}' was found."
     return (
@@ -223,7 +224,7 @@ async def octo_start_profile_by_name(
     password: ProfilePassword = None,
 ) -> str:
     """Find a profile by title and start it (find + start in one call). Requires OCTO_API_TOKEN."""
-    profile = await get_octo_cloud_client().find_profile_by_name(name, exact_match=True)
+    profile = await cloud_conduit().find_profile_by_name(name, exact_match=True)
     if not profile:
         return f"No profile titled '{name}' was found."
 
@@ -231,10 +232,10 @@ async def octo_start_profile_by_name(
     if not uuid:
         return f"Profile '{name}' has no UUID in the API."
 
-    result = await get_octo_client().get_or_start_profile(
+    result = await local_conduit().get_or_start_profile(
         uuid=uuid, headless=headless, password=password
     )
-    return _format_started(f"'{name}' ({uuid})", result)
+    return _render_launch(f"'{name}' ({uuid})", result)
 
 
 @server.tool()
@@ -254,10 +255,10 @@ async def octo_search_profiles(
     status: Annotated[int | None, Field(description="Filter by numeric profile status")] = None,
 ) -> str:
     """Search profiles by title prefix or tags. Several tags mean AND. Requires OCTO_API_TOKEN."""
-    profiles = await get_octo_cloud_client().search_profiles(
+    profiles = await cloud_conduit().search_profiles(
         search=search, tags=tags, page_len=limit, ordering=ordering, status=status
     )
-    # page_len is snapped to the nearest value the API accepts, so trim here
+    # page_len snaps to the nearest value the API accepts, so trim here
     profiles = profiles[:limit]
 
     if not profiles:
@@ -276,7 +277,7 @@ async def octo_get_profile(
     uuid: Annotated[str, Field(description="Profile UUID")],
 ) -> str:
     """Get full profile data by UUID: fingerprint, proxy, extensions, description, tags."""
-    return _format_profile(await get_octo_cloud_client().get_profile(uuid), uuid)
+    return _render_profile(await cloud_conduit().get_profile(uuid), uuid)
 
 
 # === Team resources (cloud API) ===
@@ -285,7 +286,7 @@ async def octo_get_profile(
 @server.tool()
 async def octo_get_extensions() -> str:
     """List the team's browser extensions with name, version and UUID."""
-    extensions = await get_octo_cloud_client().get_team_extensions()
+    extensions = await cloud_conduit().get_team_extensions()
     if not extensions:
         return "No extensions found."
 
@@ -306,14 +307,14 @@ async def octo_delete_extensions(
 
     Extensions in use by a running profile come back once that profile stops.
     """
-    await get_octo_cloud_client().delete_team_extensions(uuids)
+    await cloud_conduit().delete_team_extensions(uuids)
     return f"Extensions deleted: {len(uuids)}"
 
 
 @server.tool()
 async def octo_get_tags() -> str:
     """List all profile tags with name, color and UUID."""
-    tags = await get_octo_cloud_client().get_tags()
+    tags = await cloud_conduit().get_tags()
     if not tags:
         return "No tags found."
 
@@ -329,7 +330,7 @@ async def octo_get_tags() -> str:
 @server.tool()
 async def octo_get_proxies() -> str:
     """List all saved proxies with type, host, port and UUID."""
-    proxies = await get_octo_cloud_client().get_proxies()
+    proxies = await cloud_conduit().get_proxies()
     if not proxies:
         return "No proxies found."
 
@@ -352,14 +353,14 @@ async def browser_connect(
     ],
 ) -> str:
     """Connect to a running Octo Browser profile over CDP. Call after octo_start_profile."""
-    await get_browser_manager().connect(ws_endpoint)
+    await helm().connect(ws_endpoint)
     return f"Connected to the browser at {ws_endpoint}"
 
 
 @server.tool()
 async def browser_disconnect() -> str:
     """Disconnect from the browser (does not stop the Octo profile)."""
-    await get_browser_manager().disconnect()
+    await helm().disconnect()
     return "Disconnected from the browser."
 
 
@@ -375,34 +376,34 @@ async def browser_navigate(
     ] = "domcontentloaded",
 ) -> str:
     """Navigate to a URL."""
-    await get_browser_manager().navigate(url, wait_until=wait_until)
+    await helm().navigate(url, wait_until=wait_until)
     return f"Navigated to {url}"
 
 
 @server.tool()
 async def browser_get_url() -> str:
     """Get the current page URL."""
-    return f"Current URL: {await get_browser_manager().get_url()}"
+    return f"Current URL: {await helm().get_url()}"
 
 
 @server.tool()
 async def browser_go_back() -> str:
     """Go back in browser history."""
-    await get_browser_manager().go_back()
+    await helm().go_back()
     return "Went back"
 
 
 @server.tool()
 async def browser_go_forward() -> str:
     """Go forward in browser history."""
-    await get_browser_manager().go_forward()
+    await helm().go_forward()
     return "Went forward"
 
 
 @server.tool()
 async def browser_reload() -> str:
     """Reload the current page."""
-    await get_browser_manager().reload()
+    await helm().reload()
     return "Page reloaded"
 
 
@@ -422,13 +423,13 @@ async def browser_click(
     ] = 1,
 ) -> str:
     """Click an element by CSS selector, or click at (x, y) coordinates."""
-    manager = get_browser_manager()
+    driver = helm()
 
     if selector:
-        await manager.click(selector=selector, button=button, click_count=click_count)
+        await driver.click(selector=selector, button=button, click_count=click_count)
         return f"Clicked {selector}"
     if x is not None and y is not None:
-        await manager.click(x=x, y=y, button=button, click_count=click_count)
+        await driver.click(x=x, y=y, button=button, click_count=click_count)
         return f"Clicked at ({x}, {y})"
     return "Provide either a selector or (x, y) coordinates"
 
@@ -448,7 +449,7 @@ async def browser_type(
     With a selector the value is filled instantly; without one the text is typed
     key by key into the focused element.
     """
-    await get_browser_manager().type_text(text, selector=selector, delay=delay)
+    await helm().type_text(text, selector=selector, delay=delay)
     return f"Typed: {text if len(text) <= 50 else text[:50] + '...'}"
 
 
@@ -457,7 +458,7 @@ async def browser_press_key(
     key: Annotated[str, Field(description="Key name: 'Enter', 'Tab', 'Escape', 'Backspace', ...")],
 ) -> str:
     """Press a keyboard key (Enter, Tab, Escape, ArrowDown, ...)."""
-    await get_browser_manager().press_key(key)
+    await helm().press_key(key)
     return f"Key pressed: {key}"
 
 
@@ -472,14 +473,14 @@ async def browser_scroll(
     ] = None,
 ) -> str:
     """Scroll the page, or a specific element when a selector is given."""
-    await get_browser_manager().scroll(direction=direction, amount=amount, selector=selector)
+    await helm().scroll(direction=direction, amount=amount, selector=selector)
     return f"Scrolled {direction} by {amount}px"
 
 
 @server.tool()
 async def browser_hover(selector: Selector) -> str:
     """Hover over an element (useful for dropdowns and tooltips)."""
-    await get_browser_manager().hover(selector)
+    await helm().hover(selector)
     return f"Hovering over {selector}"
 
 
@@ -489,7 +490,7 @@ async def browser_select(
     value: Annotated[str, Field(description="Value of the option to select")],
 ) -> str:
     """Select an option in a <select> dropdown."""
-    await get_browser_manager().select_option(selector, value)
+    await helm().select_option(selector, value)
     return f"Selected {value} in {selector}"
 
 
@@ -505,14 +506,14 @@ async def browser_screenshot(
     full_page: Annotated[bool, Field(description="Capture the whole scrollable page")] = False,
 ) -> Image:
     """Take a screenshot of the page or of a single element. Returns a PNG."""
-    data = await get_browser_manager().screenshot(selector=selector, full_page=full_page)
+    data = await helm().screenshot(selector=selector, full_page=full_page)
     return Image(data=data, format="png")
 
 
 @server.tool()
 async def browser_get_text(selector: Selector) -> str:
     """Get the text content of an element."""
-    return await get_browser_manager().get_text(selector)
+    return await helm().get_text(selector)
 
 
 @server.tool()
@@ -521,7 +522,7 @@ async def browser_get_html(
     outer: Annotated[bool, Field(description="Include the element's own tag (outerHTML)")] = True,
 ) -> str:
     """Get the HTML of the page or of an element."""
-    html = await get_browser_manager().get_html(selector=selector, outer=outer)
+    html = await helm().get_html(selector=selector, outer=outer)
     if len(html) > MAX_HTML_CHARS:
         html = html[:MAX_HTML_CHARS] + "\n... (truncated)"
     return html
@@ -533,7 +534,7 @@ async def browser_get_attribute(
     attribute: Annotated[str, Field(description="Attribute name")],
 ) -> str:
     """Get an attribute value from an element."""
-    return f"{attribute}={await get_browser_manager().get_attribute(selector, attribute)}"
+    return f"{attribute}={await helm().get_attribute(selector, attribute)}"
 
 
 @server.tool()
@@ -541,7 +542,7 @@ async def browser_query_selector_all(
     selector: Annotated[str, Field(description="CSS selector")],
 ) -> str:
     """Find all elements matching a selector and return their metadata."""
-    elements = await get_browser_manager().query_selector_all(selector)
+    elements = await helm().query_selector_all(selector)
     return json.dumps(elements, ensure_ascii=False, indent=2)
 
 
@@ -554,7 +555,7 @@ async def browser_wait_for_selector(
     ] = "visible",
 ) -> str:
     """Wait for an element to reach a given state."""
-    await get_browser_manager().wait_for_selector(selector, timeout=timeout, state=state)
+    await helm().wait_for_selector(selector, timeout=timeout, state=state)
     return f"Element {selector} reached state '{state}'"
 
 
@@ -566,7 +567,7 @@ async def browser_evaluate(
     script: Annotated[str, Field(description="JavaScript code to execute")],
 ) -> str:
     """Run JavaScript on the page and return the result."""
-    result = await get_browser_manager().evaluate(script)
+    result = await helm().evaluate(script)
     if result is None:
         return "Done (result: null)"
     return f"Result: {json.dumps(result, ensure_ascii=False, indent=2)}"
@@ -578,7 +579,7 @@ async def browser_evaluate(
 @server.tool()
 async def browser_list_tabs() -> str:
     """List the open tabs with title, URL and active flag."""
-    tabs = await get_browser_manager().list_tabs()
+    tabs = await helm().list_tabs()
     lines = ["Open tabs:"]
     for i, tab in enumerate(tabs):
         marker = " (active)" if tab.get("active") else ""
@@ -592,7 +593,7 @@ async def browser_switch_tab(
     index: Annotated[int, Field(description="Tab index (zero-based)", ge=0)],
 ) -> str:
     """Switch to a tab by index."""
-    await get_browser_manager().switch_tab(index)
+    await helm().switch_tab(index)
     return f"Switched to tab {index}"
 
 
@@ -601,31 +602,31 @@ async def browser_new_tab(
     url: Annotated[str | None, Field(description="URL to open (optional)")] = None,
 ) -> str:
     """Open a new tab, optionally navigating to a URL."""
-    await get_browser_manager().new_tab(url)
+    await helm().new_tab(url)
     return f"New tab opened{': ' + url if url else ''}"
 
 
 @server.tool()
 async def browser_close_tab() -> str:
     """Close the current tab."""
-    await get_browser_manager().close_tab()
+    await helm().close_tab()
     return "Tab closed"
 
 
-# === Formatting helpers ===
+# === Rendering helpers ===
 
 
-def _format_started(label: str, result: dict[str, Any]) -> str:
-    """Render the result of starting a profile."""
+def _render_launch(label: str, result: dict[str, Any]) -> str:
+    """Render the outcome of launching a profile."""
     state = "was already running" if result.get("already_running") else "started"
     return (
         f"Profile {label} {state}.\n"
-        f"ws_endpoint: {extract_ws_endpoint(result)}\n\n"
+        f"ws_endpoint: {sniff_ws_endpoint(result)}\n\n"
         "Pass this ws_endpoint to browser_connect."
     )
 
 
-def _format_profile(profile: dict[str, Any], uuid: str) -> str:
+def _render_profile(profile: dict[str, Any], uuid: str) -> str:
     """Render full profile data as readable text."""
     lines = [f"Profile: {profile.get('title', 'N/A')}", f"UUID: {profile.get('uuid', uuid)}"]
 
@@ -685,7 +686,7 @@ def _setup_logging() -> None:
 def main() -> None:
     """Entry point."""
     _setup_logging()
-    logger.info("Starting octo-mcp %s (host=%s:%s)", __version__, OCTO_HOST, OCTO_PORT)
+    logger.info("Starting octobrowser-mcp %s (host=%s:%s)", __version__, OCTO_HOST, OCTO_PORT)
     server.run("stdio")
 
 

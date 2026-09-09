@@ -1,4 +1,4 @@
-"""Tests for the MCP server surface.
+"""Tests for the MCP relay surface.
 
 Tool schemas are generated from the function signatures, so these tests guard
 the contract clients depend on: tool names, required arguments and enums.
@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from mcp.types import CallToolResult, ImageContent, TextContent
 
-from octo_mcp import server as srv
+from octobrowser_mcp import relay as srv
 
 EXPECTED_TOOLS = {
     "octo_health_check",
@@ -106,13 +106,13 @@ async def test_parameters_are_documented() -> None:
 
 
 async def test_tool_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A call reaches the client layer and comes back as text."""
+    """A call reaches the conduit layer and comes back as text."""
 
     class FakeLocal:
         async def get_active_profiles(self) -> list[dict[str, Any]]:
             return [{"uuid": "abc", "title": "work_US", "ws_endpoint": "ws://host/x"}]
 
-    monkeypatch.setattr(srv, "get_octo_client", FakeLocal)
+    monkeypatch.setattr(srv, "local_conduit", FakeLocal)
     result = await srv.server.call_tool("octo_list_profiles", {})
 
     assert isinstance(result, CallToolResult)
@@ -127,11 +127,11 @@ async def test_screenshot_returns_image(monkeypatch: pytest.MonkeyPatch) -> None
     """The screenshot tool must produce an image block, not base64 text."""
     png = b"\x89PNG\r\n\x1a\n"
 
-    class FakeManager:
+    class FakeHelm:
         async def screenshot(self, selector: str | None, full_page: bool) -> bytes:
             return png
 
-    monkeypatch.setattr(srv, "get_browser_manager", FakeManager)
+    monkeypatch.setattr(srv, "helm", FakeHelm)
     result = await srv.server.call_tool("browser_screenshot", {})
 
     assert isinstance(result, CallToolResult)
