@@ -27,12 +27,13 @@ from .helmsman import Helmsman
 
 logger = logging.getLogger("octobrowser_mcp.relay")
 
-# Configuration drawn from environment variables
+# Configuration drawn from environment variables. All are optional: with none set,
+# the server still drives the local API (launch/halt profiles, steer the browser).
 OCTO_HOST = os.getenv("OCTO_HOST", "localhost")
 OCTO_PORT = int(os.getenv("OCTO_PORT", "58888"))
-OCTO_USERNAME = os.getenv("OCTO_USERNAME", "")
-OCTO_PASSWORD = os.getenv("OCTO_PASSWORD", "")
-OCTO_API_TOKEN = os.getenv("OCTO_API_TOKEN", "")
+OCTO_USERNAME = os.getenv("OCTO_USERNAME", "")  # optional — only for cloud auto sign-in
+OCTO_PASSWORD = os.getenv("OCTO_PASSWORD", "")  # optional — only for cloud auto sign-in
+OCTO_API_TOKEN = os.getenv("OCTO_API_TOKEN", "")  # optional — only for cloud API calls
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 

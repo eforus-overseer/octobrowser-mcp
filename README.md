@@ -64,33 +64,35 @@ playwright install chromium
 ### Register with Claude Code
 
 ```bash
-# Local API only — launch/halt profiles by UUID, no token needed
+# Local API only — launch/halt profiles by UUID. No email, password or token needed.
 claude mcp add octobrowser-mcp -- octobrowser-mcp
 
-# Full setup — adds cloud search by profile name, tags, proxies
+# Full setup — all three creds are OPTIONAL; add them only for cloud search by name, tags, proxies
 claude mcp add octobrowser-mcp \
-  -e OCTO_USERNAME="you@email.com" \
-  -e OCTO_PASSWORD="your_password" \
-  -e OCTO_API_TOKEN="your_api_token" \
+  -e OCTO_USERNAME="you@email.com" \    # optional — only for cloud auto sign-in
+  -e OCTO_PASSWORD="your_password" \    # optional — only for cloud auto sign-in
+  -e OCTO_API_TOKEN="your_api_token" \  # optional — only for cloud calls
   -- octobrowser-mcp
 ```
 
-Prefer editing config by hand? Drop this into `.claude/settings.json`:
+Prefer editing config by hand? Drop this into `.claude/settings.json`. **The entire `env` block is optional** — omit it for local-only use, or include only the fields you need:
 
-```json
+```jsonc
 {
   "mcpServers": {
     "octobrowser-mcp": {
       "command": "octobrowser-mcp",
       "env": {
-        "OCTO_USERNAME": "you@email.com",
-        "OCTO_PASSWORD": "your_password",
-        "OCTO_API_TOKEN": "your_api_token"
+        "OCTO_USERNAME": "you@email.com",   // optional — cloud auto sign-in only
+        "OCTO_PASSWORD": "your_password",    // optional — cloud auto sign-in only
+        "OCTO_API_TOKEN": "your_api_token"   // optional — cloud calls only
       }
     }
   }
 }
 ```
+
+<sub>The `env` keys above are shown for completeness — **none are required**. With no credentials at all, you still get the full local profile lifecycle and browser steering; the cloud-only tools simply stay dormant.</sub>
 
 Restart the client and ask: *"Check if Octo Browser is running"* — it will reach for `octo_health_check`.
 
@@ -100,15 +102,17 @@ Restart the client and ask: *"Check if Octo Browser is running"* — it will rea
 
 Everything is environment-driven:
 
-| Variable | What it sets | Default |
-|----------|--------------|---------|
-| `OCTO_HOST` | Host running Octo Browser (remote/Docker) | `localhost` |
-| `OCTO_PORT` | Local API port | `58888` |
-| `OCTO_USERNAME` | Account email for auto sign-in | — |
-| `OCTO_PASSWORD` | Account password for auto sign-in | — |
-| `OCTO_API_TOKEN` | Cloud API token (search, tags, proxies) | — |
-| `OCTO_API_URL` | Cloud API base — point at a [mirror](https://documenter.getpostman.com/view/1801428/UVC6i6eA) if the main host is fenced off | `https://app.octobrowser.net/api/v2/automation` |
-| `OCTO_LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / … (logs go to stderr) | `WARNING` |
+Everything below is optional — the server runs with **zero configuration** against your local Octo Browser.
+
+| Variable | What it sets | Required? | Default |
+|----------|--------------|-----------|---------|
+| `OCTO_HOST` | Host running Octo Browser (remote/Docker) | optional | `localhost` |
+| `OCTO_PORT` | Local API port | optional | `58888` |
+| `OCTO_USERNAME` | Account email for auto sign-in | **optional** — cloud only | — |
+| `OCTO_PASSWORD` | Account password for auto sign-in | **optional** — cloud only | — |
+| `OCTO_API_TOKEN` | Cloud API token (search, tags, proxies) | **optional** — cloud only | — |
+| `OCTO_API_URL` | Cloud API base — point at a [mirror](https://documenter.getpostman.com/view/1801428/UVC6i6eA) if the main host is fenced off | optional | `https://app.octobrowser.net/api/v2/automation` |
+| `OCTO_LOG_LEVEL` | `DEBUG` / `INFO` / `WARNING` / … (logs go to stderr) | optional | `WARNING` |
 
 ## The tool belt (37 tools)
 
@@ -236,10 +240,12 @@ Octo on another box? Set `OCTO_HOST`:
 ```bash
 claude mcp add octobrowser-mcp \
   -e OCTO_HOST="192.168.1.100" \
-  -e OCTO_USERNAME="you@email.com" \
-  -e OCTO_PASSWORD="your_password" \
+  -e OCTO_USERNAME="you@email.com" \    # optional — only for cloud auto sign-in
+  -e OCTO_PASSWORD="your_password" \    # optional — only for cloud auto sign-in
   -- octobrowser-mcp
 ```
+
+<sub>Only `OCTO_HOST` matters here — the email and password are optional and drop out entirely if you're not using the cloud API.</sub>
 
 `ws://127.0.0.1` and `ws://localhost` endpoints are rehomed to your host automatically, so CDP connects across the network. You'll need port **58888** and the per-profile CDP debug ports reachable — an SSH tunnel is the safe way to expose them.
 
