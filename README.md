@@ -302,3 +302,11 @@ This is an **independent, unofficial** project — not affiliated with, sponsore
 - [Octo Browser docs](https://docs.octobrowser.net/)
 - [Model Context Protocol](https://modelcontextprotocol.io/) — the open AI-tooling protocol
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+
+---
+
+<!-- demo-lab:start -->
+## Explore this project
+
+[Project page & walkthrough](https://eforus-overseer.github.io/demo-lab/projects/octobrowser-mcp/) — Try an interactive explanation and inspect the original source and results. Browser teaching examples are distinguished from trained models.
+<!-- demo-lab:end -->
