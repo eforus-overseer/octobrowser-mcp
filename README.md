@@ -310,3 +310,11 @@ This is an **independent, unofficial** project — not affiliated with, sponsore
 
 [Project page & walkthrough](https://eforus-overseer.github.io/demo-lab/projects/octobrowser-mcp/) — Try an interactive explanation and inspect the original source and results. Browser teaching examples are distinguished from trained models.
 <!-- demo-lab:end -->
+
+
+<!-- codex-pixel-art -->
+## Pixel art
+
+![Pixel art for octobrowser-mcp](assets/pixel-art.svg)
+
+A small visual signature for this repository.
