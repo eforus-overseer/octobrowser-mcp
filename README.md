@@ -313,8 +313,8 @@ This is an **independent, unofficial** project — not affiliated with, sponsore
 
 
 <!-- codex-pixel-art -->
-## Pixel art
+## Project visual
 
-![Pixel art for octobrowser-mcp](assets/pixel-art.svg)
+![Pixel-art cover for octobrowser-mcp](assets/project-cover.png)
 
-A small visual signature for this repository.
+<sub>Pixel-art adaptation of [OpenMoji octopus](https://github.com/hfg-gmuend/openmoji/blob/master/color/618x618/1F419.png) by OpenMoji contributors, licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Source: OpenMoji.</sub>
